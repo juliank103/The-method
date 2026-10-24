@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Never commit tokens, your config, exports, or archive logs.
+config.toml
+tokens.json
+*.jsonl
+*.csv
+twitter-*.zip
+x-export*/

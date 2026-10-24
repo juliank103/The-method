@@ -1,0 +1,24 @@
+# Copy this to ~/.config/tweetus_deletus/config.toml and fill in your app.
+#
+# 1. Go to https://developer.x.com and create a Project + App.
+# 2. In the app's "User authentication settings":
+#      - App permissions: Read and write and Direct message
+#      - Type of App: choose "Native App" (public client, PKCE, no secret) or
+#        "Web App" (confidential client, has a secret).
+#      - Callback URI / Redirect URL: http://127.0.0.1:8721/callback
+#        (must match redirect_uri below exactly).
+# 3. Copy the OAuth 2.0 Client ID (and Client Secret, for a Web App) here.
+
+[app]
+client_id = "PASTE_YOUR_OAUTH2_CLIENT_ID"
+# Leave client_secret unset/empty for a Native (public, PKCE-only) app.
+# client_secret = "PASTE_YOUR_OAUTH2_CLIENT_SECRET"
+
+redirect_uri = "http://127.0.0.1:8721/callback"
+
+# Where to store the access/refresh tokens (chmod 600).
+token_path = "~/.config/tweetus_deletus/tokens.json"
+
+# Optional: minimum seconds between API calls, to be gentle. 0 = as fast as
+# the rate limits allow (the client still backs off on 429s).
+min_interval = 0.0
