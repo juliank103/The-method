@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="tweetus-token" content="{{TOKEN}}">
+<title>Tweetus Deletus</title>
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <img src="/static/icon.svg" alt="" width="28" height="28">
+      <span>Tweetus Deletus</span>
+    </div>
+    <nav class="tabs" id="tabs" hidden>
+      <button type="button" data-tab="delete">Delete</button>
+      <button type="button" data-tab="auto">Auto-delete</button>
+      <button type="button" data-tab="history">History</button>
+      <button type="button" data-tab="settings">Settings</button>
+    </nav>
+    <div class="account-chip" id="account-chip"></div>
+  </div>
+</header>
+
+<div class="banners" id="banners"></div>
+
+<main>
+  <section id="view-loading" class="view center-view">
+    <div class="spinner" aria-hidden="true"></div>
+    <p class="muted">Loading…</p>
+  </section>
+
+  <!-- ============ SETUP ============ -->
+  <section id="view-setup" class="view narrow" hidden>
+    <div class="hero">
+      <h1>Make your posts vanish.</h1>
+      <p>Delete your X posts, replies, reposts, likes, bookmarks, messages and
+        more, in bulk and with filters. It runs on your own computer.</p>
+    </div>
+
+    <ol class="steps">
+      <li class="card step" id="step-1">
+        <div class="step-num"><span>1</span></div>
+        <div class="step-body">
+          <h2>Create your X developer app</h2>
+          <p class="muted">X only allows bulk deleting through its official API, so you
+            need your own app. You only do this once, and it takes about five minutes.</p>
+          <ol class="howto">
+            <li>Open the <a href="https://developer.x.com/en/portal/dashboard" target="_blank" rel="noopener">X Developer Portal</a>
+              and sign in with the account you want to clean up.</li>
+            <li>Create a Project and an App. Any name is fine, for example “My cleanup”.</li>
+            <li>In the app, find <b>User authentication settings</b> and click <b>Set up</b>:
+              <ul>
+                <li>App permissions: <b>Read and write and Direct message</b></li>
+                <li>Type of App: <b>Native App</b></li>
+                <li>Callback URI: <code class="copyable" id="setup-callback"></code>
+                  <button type="button" class="link-btn" data-copy="setup-callback">Copy</button></li>
+                <li>Website URL: any site, for example https://example.com</li>
+              </ul>
+            </li>
+            <li>Save, then copy the <b>OAuth 2.0 Client ID</b> it shows you.</li>
+          </ol>
+          <p class="hint">X bills API use on pay-per-use plans, so add credits in the
+            portal if it asks. Searching your downloaded archive uses almost none.</p>
+        </div>
+      </li>
+
+      <li class="card step" id="step-2">
+        <div class="step-num"><span>2</span></div>
+        <div class="step-body">
+          <h2>Paste your Client ID</h2>
+          <form id="setup-form" class="stack">
+            <div class="row">
+              <input id="setup-client-id" class="grow" placeholder="Your OAuth 2.0 Client ID"
+                     autocomplete="off" spellcheck="false" aria-label="Client ID">
+              <button class="btn primary" type="submit">Save</button>
+            </div>
+            <details class="small-details">
+              <summary>I picked “Web App” and have a Client Secret</summary>
+              <input id="setup-client-secret" type="password" placeholder="Client Secret"
+                     autocomplete="off" aria-label="Client Secret">
+            </details>
+          </form>
+        </div>
+      </li>
+
+      <li class="card step" id="step-3">
+        <div class="step-num"><span>3</span></div>
+        <div class="step-body">
+          <h2>Connect your X account</h2>
+          <p class="muted">You'll approve access on X, then come right back here.</p>
+          <a class="btn primary" href="/login" id="connect-btn">Connect with X</a>
+        </div>
+      </li>
+    </ol>
+    <p class="center hint">Just looking? Open “Try the demo” instead (or run with
+      <code>--demo</code>) to play with a pretend account.</p>
+  </section>
+
+  <!-- ============ DELETE ============ -->
+  <section id="view-delete" class="view" hidden>
+
+    <div id="delete-form">
+      <div class="card">
+        <div class="card-head">
+          <span class="num">1</span>
+          <h2>What should vanish?</h2>
+          <div class="quick">
+            <button type="button" class="chip" data-quick="posts">Posts &amp; replies</button>
+            <button type="button" class="chip" data-quick="all">Everything</button>
+            <button type="button" class="chip" data-quick="none">Clear</button>
+          </div>
+        </div>
+        <div class="type-grid" id="type-grid"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <span class="num">2</span>
+          <h2>Where should I look?</h2>
+        </div>
+        <div class="source-options" role="radiogroup" aria-label="Where to look">
+          <label class="source">
+            <input type="radio" name="source" value="live" checked>
+            <span class="source-body">
+              <b>My account on X</b>
+              <span>Your latest ~3,200 posts, plus all your likes, bookmarks and follows.
+                Uses X API requests.</span>
+            </span>
+          </label>
+          <label class="source">
+            <input type="radio" name="source" value="archive">
+            <span class="source-body">
+              <b>My X archive</b>
+              <span>Everything you've ever posted, liked or messaged.
+                Searching it uses almost no X API requests.</span>
+            </span>
+          </label>
+        </div>
+
+        <div id="archive-box" class="archive-box" hidden>
+          <div id="archive-drop" class="dropzone" tabindex="0">
+            <svg class="dz-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+            <p><b>Drop your X archive (.zip) here</b> or
+              <label class="link-btn">choose a file<input type="file" id="archive-file" accept=".zip,application/zip" hidden></label></p>
+            <p class="hint">Request it on X: Settings → Your account → Download an archive
+              of your data. It can take a day or so to arrive.</p>
+          </div>
+          <div id="archive-uploading" class="archive-uploading" hidden>
+            <p id="archive-up-label">Uploading…</p>
+            <div class="progress"><div class="bar" id="archive-up-bar"></div></div>
+          </div>
+          <div id="archive-loaded" class="archive-loaded" hidden></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <span class="num">3</span>
+          <h2>Narrow it down <span class="muted normal">(optional)</span></h2>
+        </div>
+        <div class="fields">
+          <div class="field">
+            <label for="f-when">When</label>
+            <div class="field-ctl">
+              <select id="f-when">
+                <option value="any">Any time</option>
+                <option value="older">Older than…</option>
+                <option value="before">Before a date</option>
+                <option value="between">Between two dates</option>
+              </select>
+              <span id="f-when-older" class="inline" hidden>
+                <input type="number" id="f-older" min="1" value="30" class="num-input" aria-label="Days"> days
+              </span>
+              <span id="f-when-before" class="inline" hidden>
+                <input type="date" id="f-before" aria-label="Before date">
+              </span>
+              <span id="f-when-between" class="inline" hidden>
+                <input type="date" id="f-after2" aria-label="From date"> to
+                <input type="date" id="f-before2" aria-label="To date">
+              </span>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="f-words">Only if it says</label>
+            <div class="field-ctl">
+              <input id="f-words" class="grow" placeholder="words or phrases, separated by commas">
+              <select id="f-words-mode" aria-label="Match">
+                <option value="any">any of these</option>
+                <option value="all">all of these</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="f-max-likes">Popularity</label>
+            <div class="field-ctl wrap">
+              Skip anything with more than
+              <input type="number" id="f-max-likes" min="0" placeholder="–" class="num-input">
+              likes or
+              <input type="number" id="f-max-reposts" min="0" placeholder="–" class="num-input" aria-label="Reposts">
+              reposts
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Media</label>
+            <div class="field-ctl wrap">
+              <div class="seg" id="f-media" role="group" aria-label="Media">
+                <button type="button" data-v="any">Anything</button>
+                <button type="button" data-v="with">With photos or videos</button>
+                <button type="button" data-v="without">Text only</button>
+              </div>
+              <label class="check"><input type="checkbox" id="f-links"> Only ones with links</label>
+            </div>
+          </div>
+
+          <details class="advanced">
+            <summary>More options</summary>
+            <div class="field">
+              <label for="f-hashtags">Hashtags</label>
+              <div class="field-ctl"><input id="f-hashtags" class="grow" placeholder="#tbt, #nofilter"></div>
+            </div>
+            <div class="field">
+              <label for="f-min-likes">At least</label>
+              <div class="field-ctl wrap">
+                <input type="number" id="f-min-likes" min="0" placeholder="–" class="num-input"> likes
+                (only delete popular ones)
+              </div>
+            </div>
+            <div class="field">
+              <label for="f-regex">Pattern</label>
+              <div class="field-ctl"><input id="f-regex" class="grow mono" placeholder="regular expression, e.g. ^good morning" spellcheck="false"></div>
+            </div>
+          </details>
+          <p class="hint">Popularity and media only apply to posts, likes and bookmarks.
+            Dates don't apply to follows, mutes or blocks.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <span class="num">4</span>
+          <h2>Keep safe <span class="muted normal">(optional)</span></h2>
+        </div>
+        <div class="fields">
+          <label class="check"><input type="checkbox" id="k-pinned" checked> Keep my pinned post</label>
+          <div class="field">
+            <label for="k-words">Keep anything saying</label>
+            <div class="field-ctl"><input id="k-words" class="grow" placeholder="e.g. announcement, wedding"></div>
+          </div>
+          <div class="field">
+            <label for="k-ids">Keep these posts</label>
+            <div class="field-ctl"><textarea id="k-ids" class="grow" rows="2" placeholder="Paste post links, one per line"></textarea></div>
+          </div>
+          <div class="field">
+            <label for="k-people">Keep these people</label>
+            <div class="field-ctl"><input id="k-people" class="grow" placeholder="@friend, @mom (for messages, follows, mutes and blocks)"></div>
+          </div>
+          <p class="hint" id="keep-count-hint" hidden></p>
+        </div>
+      </div>
+
+      <div class="actions-bar">
+        <button type="button" class="btn primary big" id="scan-btn">Find matching items</button>
+        <span class="hint">Nothing is deleted until you review and confirm.</span>
+      </div>
+    </div>
+
+    <div id="scan-progress" class="card working" hidden>
+      <div class="spinner" aria-hidden="true"></div>
+      <div class="grow">
+        <h2>Looking…</h2>
+        <p id="sp-note" class="muted"></p>
+        <p id="sp-count" class="hint"></p>
+      </div>
+      <button type="button" class="btn ghost" id="sp-stop">Stop</button>
+    </div>
+
+    <div id="results" hidden>
+      <div class="card">
+        <div class="results-head">
+          <div>
+            <h2 id="results-title"></h2>
+            <div id="results-chips" class="chips"></div>
+            <p class="hint" id="results-sub"></p>
+          </div>
+          <button type="button" class="btn ghost" id="results-back">← Change filters</button>
+        </div>
+        <div class="toolbar" id="results-toolbar">
+          <input type="search" id="results-search" class="grow" placeholder="Search these results" aria-label="Search results">
+          <select id="results-kind" aria-label="Type"></select>
+          <button type="button" class="btn ghost small" id="sel-all">Select all</button>
+          <button type="button" class="btn ghost small" id="sel-none">Select none</button>
+        </div>
+        <ul class="item-list" id="item-list"></ul>
+        <div class="pager" id="pager"></div>
+      </div>
+      <div class="card confirm-card" id="confirm-card">
+        <label class="check"><input type="checkbox" id="remember-unchecked">
+          Always keep the items I unchecked</label>
+        <div class="row wrap">
+          <button type="button" class="btn danger big" id="delete-btn">Delete</button>
+          <span class="hint" id="delete-hint">A copy of everything is saved in History.</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="delete-progress" class="card" hidden>
+      <h2 id="dp-title">Deleting…</h2>
+      <div class="progress big"><div class="bar" id="dp-bar"></div></div>
+      <div class="dp-stats">
+        <span id="dp-count"></span>
+        <span id="dp-eta" class="muted"></span>
+      </div>
+      <p id="dp-note" class="note"></p>
+      <div class="row wrap">
+        <button type="button" class="btn ghost" id="dp-stop">Stop</button>
+        <span class="hint">You can close this tab. Deleting keeps going as long as
+          Tweetus Deletus is running.</span>
+      </div>
+      <details class="small-details">
+        <summary>Activity</summary>
+        <ul id="dp-log" class="log"></ul>
+      </details>
+    </div>
+
+    <div id="delete-done" class="card done-card" hidden>
+      <div class="done-mark" aria-hidden="true">✨</div>
+      <h2 id="dd-title"></h2>
+      <p id="dd-sub" class="muted"></p>
+      <div class="row center">
+        <button type="button" class="btn primary" id="dd-again">Delete something else</button>
+        <button type="button" class="btn ghost" data-goto="history">See history</button>
+      </div>
+      <details class="small-details left" id="dd-log-wrap" hidden>
+        <summary>Activity</summary>
+        <ul id="dd-log" class="log"></ul>
+      </details>
+    </div>
+  </section>
+
+  <!-- ============ AUTO ============ -->
+  <section id="view-auto" class="view narrow" hidden>
+    <div class="card">
+      <div class="auto-head">
+        <div>
+          <h2>Auto-delete</h2>
+          <p class="muted">Anything older than the age you pick disappears on its own.</p>
+        </div>
+        <label class="switch" title="Turn auto-delete on or off">
+          <input type="checkbox" id="a-enabled" aria-label="Auto-delete on">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="fields">
+        <div class="field">
+          <label>Delete my</label>
+          <div class="field-ctl wrap" id="a-types"></div>
+        </div>
+        <div class="field">
+          <label for="a-older">Once they're older than</label>
+          <div class="field-ctl"><input type="number" id="a-older" min="1" value="30" class="num-input"> days</div>
+        </div>
+        <div class="field">
+          <label for="a-interval">Check every</label>
+          <div class="field-ctl">
+            <select id="a-interval">
+              <option value="1">hour</option>
+              <option value="6">6 hours</option>
+              <option value="12">12 hours</option>
+              <option value="24">day</option>
+              <option value="168">week</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>But keep</label>
+          <div class="field-ctl stack">
+            <label class="check"><input type="checkbox" id="a-pinned" checked> my pinned post</label>
+            <span>anything with more than
+              <input type="number" id="a-max-likes" min="0" placeholder="–" class="num-input" aria-label="Likes"> likes</span>
+            <input id="a-words" class="grow" placeholder="anything saying these words (comma-separated)" aria-label="Keep words">
+          </div>
+        </div>
+        <p class="hint">Your always-keep list is respected too.</p>
+        <div class="row">
+          <button type="button" class="btn primary" id="a-save">Save</button>
+          <button type="button" class="btn ghost" id="a-run">Run now</button>
+        </div>
+        <div class="auto-status" id="a-status"></div>
+      </div>
+    </div>
+    <p class="hint center">Auto-delete runs while Tweetus Deletus is open. To keep it
+      going around the clock, leave it running on a computer that stays on.</p>
+  </section>
+
+  <!-- ============ HISTORY ============ -->
+  <section id="view-history" class="view" hidden>
+    <div class="card">
+      <div class="results-head">
+        <div>
+          <h2>History</h2>
+          <p class="muted">A copy of everything Tweetus Deletus has deleted. It's saved only on this computer.</p>
+        </div>
+        <div class="row">
+          <button type="button" class="btn ghost small" id="h-csv">Download CSV</button>
+          <button type="button" class="btn ghost small" id="h-json">Download JSON</button>
+        </div>
+      </div>
+      <div class="toolbar">
+        <input type="search" id="h-search" class="grow" placeholder="Search history" aria-label="Search history">
+      </div>
+      <ul class="item-list" id="h-list"></ul>
+      <div class="pager" id="h-pager"></div>
+    </div>
+  </section>
+
+  <!-- ============ SETTINGS ============ -->
+  <section id="view-settings" class="view narrow" hidden>
+    <div class="card">
+      <h2>X account</h2>
+      <div id="s-account" class="s-account"></div>
+    </div>
+
+    <div class="card">
+      <h2>Your X app</h2>
+      <form id="s-app-form" class="fields">
+        <div class="field">
+          <label for="s-client-id">Client ID</label>
+          <div class="field-ctl"><input id="s-client-id" class="grow mono" autocomplete="off" spellcheck="false"></div>
+        </div>
+        <div class="field">
+          <label for="s-client-secret">Client Secret</label>
+          <div class="field-ctl"><input id="s-client-secret" type="password" class="grow" autocomplete="off"
+            placeholder="Only for “Web App” type apps"></div>
+        </div>
+        <div class="field">
+          <label>Callback URI</label>
+          <div class="field-ctl"><code class="copyable" id="s-callback"></code>
+            <button type="button" class="link-btn" data-copy="s-callback">Copy</button></div>
+        </div>
+        <div class="field">
+          <label for="s-interval">Pause between requests</label>
+          <div class="field-ctl"><input type="number" id="s-interval" min="0" step="0.5" class="num-input"> seconds
+            <span class="hint">(0 = as fast as X allows)</span></div>
+        </div>
+        <div class="row"><button class="btn primary" type="submit">Save</button></div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Always-keep list</h2>
+      <p class="muted">These are never deleted, by any search or by auto-delete.</p>
+      <form id="s-keep-form" class="row">
+        <input id="s-keep-input" class="grow" placeholder="Paste a post link or ID" aria-label="Post link or ID">
+        <button class="btn ghost" type="submit">Add</button>
+      </form>
+      <ul id="s-keep-list" class="keep-list"></ul>
+    </div>
+
+    <div class="card">
+      <h2>Your data</h2>
+      <p class="muted">Everything stays in <code id="s-data-dir"></code>.
+        The only thing Tweetus Deletus talks to is X itself.</p>
+      <p class="hint" id="s-version"></p>
+    </div>
+  </section>
+</main>
+
+<div class="modal-backdrop" id="modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <h2 id="modal-title"></h2>
+    <p id="modal-body" class="muted"></p>
+    <label for="modal-input" id="modal-label">Type <b>DELETE</b> to confirm</label>
+    <input id="modal-input" autocomplete="off" spellcheck="false">
+    <div class="row end">
+      <button type="button" class="btn ghost" id="modal-cancel">Cancel</button>
+      <button type="button" class="btn danger" id="modal-ok" disabled>Delete forever</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

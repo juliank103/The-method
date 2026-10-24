@@ -25,6 +25,7 @@ can emit a CSV. That's your "you always keep a local copy" safety net.
 from __future__ import annotations
 
 import csv
+import fnmatch
 import glob
 import json
 import os
@@ -41,6 +42,14 @@ _ASSIGN_RE = re.compile(r"^\s*window\.YTD\.[A-Za-z0-9_]+\.part\d+\s*=\s*",
 
 def _strip_assignment(text: str) -> str:
     return _ASSIGN_RE.sub("", text, count=1).strip()
+
+
+def _from_data_dir(name: str) -> str:
+    """'export-2026/data/tweets.js' -> 'data/tweets.js'."""
+    if name.startswith("data/"):
+        return name
+    i = name.find("/data/")
+    return name[i + 1:] if i >= 0 else name
 
 
 def _twitter_time(value: str | None) -> datetime | None:
@@ -78,12 +87,13 @@ class ArchiveReader:
         patterns = [f"data/{basename}.js", f"data/{basename}-part*.js",
                     f"{basename}.js", f"{basename}-part*.js"]
         if self.is_zip:
+            data_patterns = patterns[:2]
             with zipfile.ZipFile(self.path) as zf:
-                names = zf.namelist()
-                for pat in patterns:
-                    rx = re.compile("^" + glob.fnmatch.translate(pat))
+                names = sorted(zf.namelist())
+                for pat in data_patterns:
                     for name in names:
-                        if rx.match(name):
+                        # Tolerate a wrapping folder (re-zipped exports).
+                        if fnmatch.fnmatchcase(_from_data_dir(name), pat):
                             yield zf.read(name).decode("utf-8", "replace")
         else:
             root = self.path
@@ -99,7 +109,9 @@ class ArchiveReader:
     # -- typed extractors ----------------------------------------------
 
     def tweets(self) -> Iterator[Item]:
-        for rec in self._read_group("tweets"):
+        # Newer exports call it tweets.js, older ones tweet.js.
+        records = self._read_group("tweets") or self._read_group("tweet")
+        for rec in records:
             t = rec.get("tweet", rec)
             refs = t.get("referenced_tweets")  # not usually present in export
             is_reply = bool(t.get("in_reply_to_status_id_str")
@@ -143,11 +155,17 @@ class ArchiveReader:
                 yield Item(kind="list", id=lid, text=lst.get("name", ""))
 
     def dms(self) -> Iterator[Item]:
-        for rec in self._read_group("direct-messages"):
+        # X only lets you delete messages you sent, so skip the rest.
+        me = self.account().get("id")
+        records = (self._read_group("direct-messages")
+                   + self._read_group("direct-messages-group"))
+        for rec in records:
             conv = rec.get("dmConversation", {})
             for msg in conv.get("messages", []):
                 create = msg.get("messageCreate")
                 if not create:
+                    continue
+                if me and str(create.get("senderId", "")) != me:
                     continue
                 yield Item(
                     kind="dm",
@@ -156,6 +174,21 @@ class ArchiveReader:
                     text=create.get("text", ""),
                     handle=str(create.get("senderId", "")),
                 )
+
+    def account(self) -> dict:
+        """{"username", "id"} of the archive's owner, or {} if absent."""
+        for rec in self._read_group("account"):
+            acct = rec.get("account", rec)
+            return {"username": acct.get("username", ""),
+                    "id": str(acct.get("accountId", ""))}
+        return {}
+
+    def summary(self) -> dict:
+        """Owner plus item counts per supported category."""
+        counts = {}
+        for category in self.GROUPS:
+            counts[category] = sum(1 for _ in self.items(category))
+        return {"account": self.account(), "counts": counts}
 
     GROUPS = {
         "posts": "tweets",

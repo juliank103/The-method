@@ -1,5 +1,7 @@
 """Command-line interface for Tweetus Deletus.
 
+    tweetus-deletus                     # open the app in your browser
+    tweetus-deletus --demo              # ...with a pretend account
     tweetus-deletus login
     tweetus-deletus whoami
     tweetus-deletus preview  --what posts --keyword foo --before 2020-01-01
@@ -230,6 +232,14 @@ def cmd_export_csv(args) -> int:
     return 0
 
 
+def cmd_ui(args) -> int:
+    from .webui import serve
+    demo = getattr(args, "demo", False) or getattr(args, "demo_ui", False)
+    return serve(args.config, demo=demo,
+                 port=getattr(args, "port", None),
+                 open_browser=not getattr(args, "no_browser", False))
+
+
 # -- helpers ------------------------------------------------------------
 
 def _confirm(message: str, phrase: str = "yes") -> bool:
@@ -323,10 +333,24 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="tweetus-deletus",
         description="Mass-delete your own X/Twitter content via the official "
-                    "API. Operates only on the account you log in as.")
+                    "API. Operates only on the account you log in as. "
+                    "Run with no command to open the app in your browser.")
     p.add_argument("--config", default=DEFAULT_CONFIG_PATH,
                    help=f"config file (default {DEFAULT_CONFIG_PATH})")
-    sub = p.add_subparsers(dest="command", required=True)
+    p.add_argument("--demo", action="store_true",
+                   help="open the app with a pretend account (nothing real "
+                        "is deleted)")
+    sub = p.add_subparsers(dest="command")
+
+    sp = sub.add_parser("ui", help="open the app in your browser (default)")
+    sp.add_argument("--demo", dest="demo_ui", action="store_true",
+                    help="use a pretend account; nothing real is deleted")
+    sp.add_argument("--port", type=int,
+                    help="port to listen on (default: from your callback "
+                         "URL, 8721; demo uses 8722)")
+    sp.add_argument("--no-browser", action="store_true",
+                    help="don't open a browser tab automatically")
+    sp.set_defaults(func=cmd_ui)
 
     sp = sub.add_parser("login", help="authorize once in your browser")
     sp.add_argument("--no-browser", action="store_true")
@@ -369,6 +393,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command is None:
+        args.func = cmd_ui  # no command: open the app
     try:
         return args.func(args)
     except TweetusError as exc:

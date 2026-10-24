@@ -2,14 +2,18 @@
 
 X's user-context write endpoints (delete post, unlike, unretweet, remove
 bookmark, unfollow, unmute, unblock, delete DM, delete list) require an OAuth
-2.0 user access token with the right scopes. This module runs the one-time
-browser authorization, captures the redirect on a throwaway localhost server,
-exchanges the code for tokens, stores them, and refreshes them when they
-expire.
+2.0 user access token with the right scopes. This module builds the
+authorization URL, exchanges the returned code for tokens, stores them, and
+refreshes them when they expire.
 
-You create the OAuth 2.0 app once at https://developer.x.com, set the callback
-URL to the one printed here (default http://127.0.0.1:8721/callback), and put
-the client id (and client secret, for confidential apps) in your config.
+Two ways to log in:
+  * the web UI handles X's redirect on its own /callback route, using
+    begin_login() and complete_login();
+  * the CLI's login() runs a throwaway localhost server to catch it.
+
+You create the OAuth 2.0 app once at https://developer.x.com and set its
+callback URL to the redirect_uri in your config (default
+http://127.0.0.1:8721/callback).
 """
 
 from __future__ import annotations
@@ -37,7 +41,6 @@ TOKEN_URL = "https://api.x.com/2/oauth2/token"
 ALL_SCOPES = [
     "tweet.read",
     "tweet.write",
-    "tweet.moderate.write",
     "users.read",
     "like.read",
     "like.write",
@@ -116,6 +119,10 @@ class TokenStore:
         except OSError:
             pass
 
+    def clear(self) -> None:
+        if os.path.exists(self.path):
+            os.remove(self.path)
+
 
 class Authenticator:
     """Owns the token lifecycle: authorize once, then hand out fresh tokens."""
@@ -131,30 +138,31 @@ class Authenticator:
         self.store = store
         self.scopes = scopes or ALL_SCOPES
         self._tokens = store.load()
+        self._lock = threading.Lock()
 
     # -- public ---------------------------------------------------------
 
     @property
     def authorized(self) -> bool:
-        return bool(self._tokens and self._tokens.get("refresh_token")
-                    or self._tokens and self._tokens.get("access_token"))
+        t = self._tokens or {}
+        return bool(t.get("refresh_token") or t.get("access_token"))
 
     def access_token(self) -> str:
-        """Return a valid access token, refreshing or authorizing as needed."""
-        if not self._tokens:
-            raise AuthError(
-                "Not authorized yet. Run `tweetus-deletus login` first.")
-        if self._expired():
-            self._refresh()
-        return self._tokens["access_token"]
+        """Return a valid access token, refreshing as needed."""
+        with self._lock:
+            if not self._tokens:
+                raise AuthError(
+                    "Not connected to X yet. Connect your account first.")
+            if self._expired():
+                self._refresh()
+            return self._tokens["access_token"]
 
-    def login(self, open_browser: bool = True) -> dict:
-        """Run the interactive browser authorization once."""
+    def begin_login(self) -> tuple[str, str, str]:
+        """Return (authorize_url, state, code_verifier) for a new login."""
         verifier = _b64url(secrets.token_bytes(64))
         challenge = _b64url(hashlib.sha256(verifier.encode("ascii")).digest())
         state = secrets.token_urlsafe(24)
-
-        auth_params = {
+        params = {
             "response_type": "code",
             "client_id": self.client_id,
             "redirect_uri": self.redirect_uri,
@@ -163,11 +171,28 @@ class Authenticator:
             "code_challenge": challenge,
             "code_challenge_method": "S256",
         }
-        url = AUTHORIZE_URL + "?" + urllib.parse.urlencode(auth_params)
+        return AUTHORIZE_URL + "?" + urllib.parse.urlencode(params), state, verifier
 
-        code = self._capture_code(url, state, open_browser)
-        self._exchange_code(code, verifier)
+    def complete_login(self, code: str, verifier: str) -> dict:
+        """Exchange the authorization code for tokens and store them."""
+        payload = self._token_request({
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": self.redirect_uri,
+            "code_verifier": verifier,
+        })
+        self._persist(payload)
         return self._tokens
+
+    def login(self, open_browser: bool = True) -> dict:
+        """CLI login: open the browser and catch the redirect ourselves."""
+        url, state, verifier = self.begin_login()
+        code = self._capture_code(url, state, open_browser)
+        return self.complete_login(code, verifier)
+
+    def logout(self) -> None:
+        self._tokens = None
+        self.store.clear()
 
     # -- internals ------------------------------------------------------
 
@@ -227,28 +252,21 @@ class Authenticator:
             auth = (self.client_id, self.client_secret)
         else:
             data = {**data, "client_id": self.client_id}
-        resp = requests.post(TOKEN_URL, data=data, headers=headers, auth=auth,
-                             timeout=30)
+        try:
+            resp = requests.post(TOKEN_URL, data=data, headers=headers,
+                                 auth=auth, timeout=30)
+        except requests.RequestException as exc:
+            raise AuthError(f"Couldn't reach X to sign in: {exc}") from exc
         if resp.status_code != 200:
             raise AuthError(
-                f"Token endpoint returned {resp.status_code}: {resp.text}")
+                f"X's token endpoint returned {resp.status_code}: {resp.text}")
         return resp.json()
-
-    def _exchange_code(self, code: str, verifier: str) -> None:
-        payload = self._token_request({
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": self.redirect_uri,
-            "code_verifier": verifier,
-        })
-        self._persist(payload)
 
     def _refresh(self) -> None:
         refresh = self._tokens.get("refresh_token")
         if not refresh:
             raise AuthError(
-                "Access token expired and no refresh token is stored. "
-                "Run `tweetus-deletus login` again.")
+                "Your X sign-in expired. Reconnect your account.")
         payload = self._token_request({
             "grant_type": "refresh_token",
             "refresh_token": refresh,

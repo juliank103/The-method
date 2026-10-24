@@ -59,9 +59,19 @@ class XClient:
         while True:
             self._throttle()
             self._last_call = time.time()
-            resp = self._session.request(
-                method, url, headers=self._headers(), params=params,
-                json=json, timeout=30)
+            try:
+                resp = self._session.request(
+                    method, url, headers=self._headers(), params=params,
+                    json=json, timeout=30)
+            except requests.RequestException as exc:
+                if attempt >= retries:
+                    raise ApiError(f"Couldn't reach X: {exc}") from exc
+                backoff = min(2 ** attempt, 60)
+                self._log(f"Network problem ({exc.__class__.__name__}); "
+                          f"retrying in {backoff}s")
+                self._sleep(backoff)
+                attempt += 1
+                continue
 
             if resp.status_code == 429:
                 self._handle_rate_limit(resp, attempt, retries, method, path)
@@ -89,7 +99,8 @@ class XClient:
             wait = max(1.0, float(reset) - now) + 1.0
         else:
             wait = min(2 ** attempt * 5, 900)
-        self._log(f"  Rate limited; sleeping {int(wait)}s for the window to reset.")
+        self._log(f"Hit X's rate limit; waiting {_human_wait(wait)} "
+                  f"(resumes around {_clock(now + wait)}).")
         self._sleep(wait)
 
     def _maybe_pause_on_header(self, resp):
@@ -100,7 +111,9 @@ class XClient:
         try:
             if int(remaining) <= 0:
                 wait = max(1.0, float(reset) - time.time()) + 1.0
-                self._log(f"  Window exhausted; sleeping {int(wait)}s.")
+                self._log(f"Used up this rate-limit window; waiting "
+                          f"{_human_wait(wait)} (resumes around "
+                          f"{_clock(time.time() + wait)}).")
                 self._sleep(wait)
         except ValueError:
             pass
@@ -161,3 +174,14 @@ def _safe_json(resp) -> dict:
         return resp.json()
     except ValueError:
         return {}
+
+
+def _human_wait(seconds: float) -> str:
+    seconds = int(seconds)
+    if seconds < 90:
+        return f"{seconds}s"
+    return f"{round(seconds / 60)} min"
+
+
+def _clock(ts: float) -> str:
+    return time.strftime("%H:%M", time.localtime(ts))

@@ -229,13 +229,38 @@ class Actions:
 
     # -- deletion -------------------------------------------------------
 
+    def _repost_source(self, item: Item) -> str | None:
+        """The id of the post that `item` reposts.
+
+        Live timeline items carry it in referenced_tweets. Archive items
+        don't, so look the repost up once.
+        """
+        refs = item.extra.get("referenced_tweets")
+        if refs is None:
+            try:
+                data = self.client.get(
+                    f"/2/tweets/{item.id}",
+                    {"tweet.fields": "referenced_tweets"}).get("data") or {}
+            except ApiError:
+                return None
+            refs = data.get("referenced_tweets") or []
+        for ref in refs:
+            if ref.get("type") == "retweeted":
+                return str(ref.get("id"))
+        return None
+
     def delete(self, item: Item) -> dict:
         uid = self.my_id
         if item.kind in ("post", "reply", "quote"):
             return self.client.delete(f"/2/tweets/{item.id}")
         if item.kind == "repost":
-            return self.client.delete(
-                f"/2/users/{uid}/retweets/{item.id}")
+            # Un-reposting takes the ORIGINAL post's id, not the repost's.
+            source = self._repost_source(item)
+            if source:
+                return self.client.delete(f"/2/users/{uid}/retweets/{source}")
+            # Couldn't resolve the original (e.g. it was deleted); deleting
+            # the repost by its own id is the remaining option.
+            return self.client.delete(f"/2/tweets/{item.id}")
         if item.kind == "like":
             return self.client.delete(f"/2/users/{uid}/likes/{item.id}")
         if item.kind == "bookmark":

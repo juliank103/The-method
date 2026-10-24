@@ -15,3 +15,6 @@ tweetus-deletus = "tweetus_deletus.cli:main"
 
 [tool.setuptools]
 packages = ["tweetus_deletus"]
+
+[tool.setuptools.package-data]
+tweetus_deletus = ["ui/*"]

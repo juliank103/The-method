@@ -1,4 +1,6 @@
-# Copy this to ~/.config/tweetus_deletus/config.toml and fill in your app.
+# You don't need this file if you use the app: its setup screen writes
+# ~/.config/tweetus_deletus/config.toml for you. For command-line-only use,
+# copy this there and fill in your app.
 #
 # 1. Go to https://developer.x.com and create a Project + App.
 # 2. In the app's "User authentication settings":

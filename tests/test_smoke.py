@@ -198,6 +198,71 @@ def test_cli_filter_building_and_interval():
     assert parse_date("2021-05-06") == datetime(2021, 5, 6, tzinfo=UTC)
 
 
+def test_keywords_match_whole_words():
+    fs = FilterSet(keywords=["cat"])
+    assert fs.should_delete(_post(text="my cat is great"))
+    assert not fs.should_delete(_post(text="concatenate strings"))
+    fs = FilterSet(hashtags=["tbt"])
+    assert fs.should_delete(_post(text="throwback #TBT"))
+    assert not fs.should_delete(_post(text="#tbtlover"))
+
+
+def test_filters_skip_kinds_without_that_data():
+    fs = FilterSet(older_than_days=30, max_likes=5)
+    # follows have no date or likes, so these rules don't apply to them
+    assert fs.should_delete(Item(kind="follow", id="9", handle="@a"))
+    # an archived like has no date: when in doubt, don't delete
+    assert not fs.should_delete(Item(kind="like", id="8"))
+
+
+class RepostClient(FakeClient):
+    def get(self, path, params=None):
+        if path == "/2/tweets/333":
+            return {"data": {"id": "333", "referenced_tweets": [
+                {"type": "retweeted", "id": "777"}]}}
+        return super().get(path, params)
+
+
+def test_unrepost_uses_original_post_id():
+    client = RepostClient()
+    actions = Actions(client)
+    # from the live timeline: source id already known
+    actions.delete(Item(kind="repost", id="111", extra={"referenced_tweets": [
+        {"type": "retweeted", "id": "222"}]}))
+    # from an archive: looked up once
+    actions.delete(Item(kind="repost", id="333"))
+    assert client.deleted == ["/2/users/me123/retweets/222",
+                              "/2/users/me123/retweets/777"]
+
+
+def test_archive_edge_cases():
+    import zipfile
+    old_tweets = ('window.YTD.tweet.part0 = [{"tweet": {"id_str": "1", '
+                  '"full_text": "from an old export"}}]')
+    acct = ('window.YTD.account.part0 = [{"account": {"username": "me", '
+            '"accountId": "42"}}]')
+    dms = ('window.YTD.direct_messages.part0 = [{"dmConversation": {"messages": ['
+           '{"messageCreate": {"id": "m1", "senderId": "42", "text": "mine"}},'
+           '{"messageCreate": {"id": "m2", "senderId": "99", "text": "theirs"}}]}}]')
+    group = ('window.YTD.direct_messages_group.part0 = [{"dmConversation": {"messages": ['
+             '{"messageCreate": {"id": "g1", "senderId": "42", "text": "group"}}]}}]')
+    with tempfile.TemporaryDirectory() as d:
+        zpath = os.path.join(d, "export.zip")
+        with zipfile.ZipFile(zpath, "w") as zf:
+            # re-zipped with a wrapping folder, old tweet.js name
+            zf.writestr("twitter-2020/data/tweet.js", old_tweets)
+            zf.writestr("twitter-2020/data/account.js", acct)
+            zf.writestr("twitter-2020/data/direct-messages.js", dms)
+            zf.writestr("twitter-2020/data/direct-messages-group.js", group)
+            zf.writestr("twitter-2020/data/deleted-tweets.js",
+                        'window.YTD.deleted_tweets.part0 = [{"tweet": {"id_str": "x"}}]')
+        r = ArchiveReader(zpath)
+        assert [p.id for p in r.items("posts")] == ["1"]
+        # only messages you sent can be deleted
+        assert sorted(m.id for m in r.items("dms")) == ["g1", "m1"]
+        assert r.account() == {"username": "me", "id": "42"}
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
