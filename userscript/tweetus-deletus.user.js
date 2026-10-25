@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tweetus Deletus
 // @namespace    app.tweetusdeletus
-// @version      1.0.3
+// @version      1.0.4
 // @description  Delete your own X (Twitter) posts in bulk, slowly and safely, from your own browser. Free.
 // @author       Tweetus Deletus
 // @match        *://x.com/*
@@ -213,16 +213,36 @@
     return false;
   }
 
+  function escapeKey() {
+    return new KeyboardEvent("keydown", { key: "Escape", code: "Escape",
+      keyCode: 27, which: 27, bubbles: true, cancelable: true });
+  }
+
+  // Close any open "..." menu or confirm pop-up, so they don't pile up on
+  // screen. Try the gentle ways first (Escape, click the dark backdrop), then
+  // as a last resort remove the leftover pop-up layer outright.
   async function closeAnyMenu() {
-    if (document.querySelector(SEL.menu)) {
-      document.body.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-      await sleep(300);
+    const isOpen = () => document.querySelector(SEL.menu)
+      || document.querySelector('[role="menu"]')
+      || document.querySelector('[data-testid="mask"]');
+    for (let i = 0; i < 4 && isOpen(); i++) {
+      document.dispatchEvent(escapeKey());
+      (document.activeElement || document.body).dispatchEvent(escapeKey());
+      await sleep(120);
+      const mask = document.querySelector('[data-testid="mask"]');
+      if (mask) { try { mask.click(); } catch (e) { /* ignore */ } await sleep(120); }
+    }
+    if (isOpen()) {
+      for (const m of document.querySelectorAll(SEL.menu + ', [role="menu"]')) {
+        const layer = (m.closest && m.closest("#layers > *")) || m.parentElement;
+        try { (layer || m).remove(); } catch (e) { /* ignore */ }
+      }
     }
   }
 
   // Delete (or undo-repost) one post. Returns "deleted" | "skip" | "error".
   async function handleOne(art) {
+    await closeAnyMenu();            // clear anything left from the last one
     art.scrollIntoView({ block: "center" });
     await sleep(500);
 
@@ -248,6 +268,7 @@
     const confirm = document.querySelector(SEL.confirm);
     if (confirm) { confirm.click(); await sleep(600); }
 
+    await closeAnyMenu();            // tidy up any leftover pop-up
     return "deleted";
   }
 

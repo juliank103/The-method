@@ -58,17 +58,19 @@ if (!chromium) {
 const day = 86400000, now = Date.now();
 // id, text, ageDays, pinned, isRepost
 const DATA = [
-  ["101", "pinned important", 400, true, false],
-  ["102", "old crypto take", 500, false, false],
-  ["103", "our wedding post", 600, false, false],
-  ["104", "a recent thought", 2, false, false],
-  ["105", "RT friend", 800, false, true],
-  ["106", "another old one", 700, false, false],
+  ["101", "pinned important", 400, true, false, false],
+  ["102", "old crypto take", 500, false, false, false],
+  ["103", "our wedding post", 600, false, false, false],
+  ["104", "a recent thought", 2, false, false, false],
+  ["105", "RT friend", 800, false, true, false],
+  ["106", "another old one", 700, false, false, false],
+  ["107", "someone elses post", 900, false, false, true],  // foreign -> skip
 ];
 function pageHtml() {
-  const arts = DATA.map(([id, text, age, pinned, repost]) => {
+  const arts = DATA.map(([id, text, age, pinned, repost, foreign]) => {
     const dt = new Date(now - age * day).toISOString();
-    const menu = repost ? ["Undo repost", "Copy link"] : ["Delete", "Pin to your profile"];
+    const menu = foreign ? ["Unfollow @them", "Mute", "Block", "Report post"]
+      : repost ? ["Undo repost", "Copy link"] : ["Delete", "Pin to your profile"];
     return `<article data-testid="tweet" data-id="${id}">
       ${pinned ? '<div data-testid="socialContext">Pinned</div>' : ""}
       <div data-testid="tweetText">${text}</div>
@@ -76,14 +78,19 @@ function pageHtml() {
       <button data-testid="caret" onclick='openMenu("${id}", ${JSON.stringify(menu)})'>...</button>
     </article>`;
   }).join("");
+  // The mock mimics X: a menu opens with a dark backdrop (mask); it only
+  // closes on Escape or a click on that mask — like the real site.
   return `<!doctype html><meta charset=utf8><body><h1>testuser</h1><div id=feed>${arts}</div><div id=layers></div>
   <script>
-    window.openMenu=function(id,items){close_();var m=document.createElement('div');
-      m.setAttribute('data-testid','Dropdown');m.id='live-menu';
+    window.openMenu=function(id,items){close_();
+      var mask=document.createElement('div');mask.setAttribute('data-testid','mask');
+      mask.id='live-mask';mask.onclick=close_;document.getElementById('layers').appendChild(mask);
+      var m=document.createElement('div');m.setAttribute('data-testid','Dropdown');
+      m.setAttribute('role','menu');m.id='live-menu';
       items.forEach(function(t){var it=document.createElement('div');it.setAttribute('role','menuitem');
         it.textContent=t;it.onclick=function(){pick(id,t)};m.appendChild(it)});
       document.getElementById('layers').appendChild(m)};
-    function close_(){var e=document.getElementById('live-menu');if(e)e.remove()}
+    function close_(){['live-menu','live-mask'].forEach(function(i){var e=document.getElementById(i);if(e)e.remove()})}
     document.addEventListener('keydown',function(e){if(e.key==='Escape')close_()});
     function pick(id,t){close_();if(t==='Delete'||t==='Undo repost'){
       var s=document.createElement('div');var b=document.createElement('button');
@@ -125,10 +132,12 @@ try {
   const deleted = (await p.evaluate(() => window.__deleted || [])).sort();
   const remaining = (await p.$$eval("article[data-testid=tweet]", (a) => a.map((x) => x.dataset.id))).sort();
   const err = await p.$eval("#tdp-err", (e) => e.textContent);
+  const openMenus = await p.$$eval('[data-testid="Dropdown"], [data-testid="mask"]', (n) => n.length);
   ok("deleted the two old posts and undid the old repost",
     JSON.stringify(deleted) === JSON.stringify(["102", "105", "106"]));
-  ok("kept pinned + keyword + recent",
-    JSON.stringify(remaining) === JSON.stringify(["101", "103", "104"]));
+  ok("kept pinned + keyword + recent + someone else's",
+    JSON.stringify(remaining) === JSON.stringify(["101", "103", "104", "107"]));
+  ok("no menus or backdrops left piled up", openMenus === 0);
   ok("no errors", err === "0");
   ok("no page exceptions", problems.length === 0);
 
