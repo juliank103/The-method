@@ -1,13 +1,29 @@
 # Tweetus Deletus
 
-Clean up an X (Twitter) account in a few clicks. Delete old posts, replies,
-reposts, likes and bookmarks (and, if you want, messages, follows, mutes,
-blocks and lists). It's an app that runs on your own computer and talks only
-to X.
+Delete your own X (Twitter) posts in bulk. There are two ways to use it — pick
+one:
+
+### 🆓 Free — the browser version (recommended)
+
+A little panel that runs in your own browser on x.com and deletes your posts
+slowly, for free, with nothing to sign up for. Best for most people.
+
+→ **[Set it up in the `userscript/` folder](userscript/README.md)** (about 2
+minutes, works on any computer).
+
+It deletes your posts, replies and reposts the same way you would by hand —
+one at a time, slowly — so it's free and gentle. The trade-off is that it's
+slower, and automating X is against X's rules, so go slow and start small.
+
+### 💳 The desktop app (official, costs a little)
+
+A polished app with filters, auto-delete and history that uses X's official
+API. Rock-solid, but X charges a small per-delete fee to the developer account
+behind it, so it isn't free. Details below.
 
 ![What should disappear?](docs/home.png)
 
-## Using it
+## The desktop app
 
 1. **Get the app**: the file someone sent you, or download it:
    - Mac: [Tweetus-Deletus-Mac.zip](https://github.com/juliank103/The-method/releases/latest/download/Tweetus-Deletus-Mac.zip)
