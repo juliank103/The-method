@@ -69,20 +69,27 @@ const DATA = [
 function pageHtml() {
   const arts = DATA.map(([id, text, age, pinned, repost, foreign]) => {
     const dt = new Date(now - age * day).toISOString();
+    const author = foreign ? "them" : repost ? "friend" : "hanibanhi";
+    const social = pinned ? "Pinned" : repost ? "You reposted" : "";
     const menu = foreign ? ["Unfollow @them", "Mute", "Block", "Report post"]
       : repost ? ["Undo repost", "Copy link"] : ["Delete", "Pin to your profile"];
     return `<article data-testid="tweet" data-id="${id}">
-      ${pinned ? '<div data-testid="socialContext">Pinned</div>' : ""}
+      ${social ? `<div data-testid="socialContext">${social}</div>` : ""}
+      <div data-testid="User-Name"><a href="/${author}">@${author}</a></div>
       <div data-testid="tweetText">${text}</div>
       <a href="/testuser/status/${id}"><time datetime="${dt}">t</time></a>
       <button data-testid="caret" onclick='openMenu("${id}", ${JSON.stringify(menu)})'>...</button>
     </article>`;
   }).join("");
-  // The mock mimics X: a menu opens with a dark backdrop (mask); it only
-  // closes on Escape or a click on that mask — like the real site.
-  return `<!doctype html><meta charset=utf8><body><h1>testuser</h1><div id=feed>${arts}</div><div id=layers></div>
+  // The mock mimics X: a left-nav Profile link (so the script knows who you
+  // are), and menus that open with a dark backdrop (mask) and close on Escape
+  // or a click on that mask — like the real site.
+  return `<!doctype html><meta charset=utf8><body><h1>testuser</h1>
+  <a data-testid="AppTabBar_Profile_Link" href="/hanibanhi">Profile</a>
+  <div id=feed>${arts}</div><div id=layers></div>
   <script>
-    window.openMenu=function(id,items){close_();
+    window.__menuOpens=[];
+    window.openMenu=function(id,items){window.__menuOpens.push(id);close_();
       var mask=document.createElement('div');mask.setAttribute('data-testid','mask');
       mask.id='live-mask';mask.onclick=close_;document.getElementById('layers').appendChild(mask);
       var m=document.createElement('div');m.setAttribute('data-testid','Dropdown');
@@ -139,6 +146,8 @@ try {
     JSON.stringify(remaining) === JSON.stringify(["101", "103", "104", "107"]));
   ok("no menus or backdrops left piled up", openMenus === 0);
   ok("no errors", err === "0");
+  const opened = await p.evaluate(() => window.__menuOpens || []);
+  ok("never opened a menu on someone else's post (107)", !opened.includes("107"));
   ok("no page exceptions", problems.length === 0);
 
   // If a date filter excludes everything, say why (this is the likely cause

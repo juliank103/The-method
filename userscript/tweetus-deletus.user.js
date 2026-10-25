@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tweetus Deletus
 // @namespace    app.tweetusdeletus
-// @version      1.0.5
+// @version      1.0.6
 // @description  Delete your own X (Twitter) posts in bulk, slowly and safely, from your own browser. Free.
 // @author       Tweetus Deletus
 // @match        *://x.com/*
@@ -175,6 +175,41 @@
     return !!(s && /pinned/i.test(s.textContent || ""));
   }
 
+  const NOT_A_HANDLE = /^(home|explore|notifications|messages|i|settings|search|compose|hashtag)$/;
+
+  // Your own @handle, read from the "Profile" link in X's left menu.
+  function myHandle() {
+    const link = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]')
+      || document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"] a[href^="/"]');
+    const m = link && /^\/([A-Za-z0-9_]+)/.exec(link.getAttribute("href") || "");
+    return m ? m[1].toLowerCase() : null;
+  }
+
+  // Who wrote this post (the @handle in its author line).
+  function authorHandle(article) {
+    const root = article.querySelector('[data-testid="User-Name"]') || article;
+    for (const a of root.querySelectorAll('a[href]')) {
+      const m = /^\/([A-Za-z0-9_]+)$/.exec(a.getAttribute("href") || "");
+      if (m && !NOT_A_HANDLE.test(m[1].toLowerCase())) return m[1].toLowerCase();
+    }
+    return null;
+  }
+
+  // Is this a post we could act on? Ours (reply/post/quote), or a repost of
+  // ours. When we can't tell, say yes and let the menu decide — safer than
+  // skipping something of yours. Posts clearly by other people (the ones you
+  // replied to, shown on the Replies tab) are skipped WITHOUT opening a menu,
+  // which is what kept erroring before.
+  function mine(article) {
+    const me = myHandle();
+    if (!me) return true;                       // can't tell who I am
+    const s = article.querySelector(SEL.social);
+    if (s && /repost|retweet/i.test(s.textContent || "")) return true;  // my repost
+    const author = authorHandle(article);
+    if (!author) return true;                   // can't read the author
+    return author === me;
+  }
+
   // Find the first post we haven't dealt with yet that passes the filters.
   function nextCandidate() {
     const cutoffMs = S.settings.olderThanDays
@@ -186,6 +221,7 @@
     for (const art of document.querySelectorAll(SEL.tweet)) {
       const id = tweetId(art);
       if (!id || S.processed.has(id)) continue;
+      if (!mine(art)) { S.processed.add(id); continue; }   // someone else's — leave it, no menu
       if (S.settings.keepPinned && isPinned(art)) { S.processed.add(id); S.skipped++; continue; }
       if (!H.isOlderThan(tweetDate(art), cutoffMs)) {
         S.processed.add(id); S.skipped++; S.tooNew++; continue;
@@ -221,25 +257,20 @@
       keyCode: 27, which: 27, bubbles: true, cancelable: true });
   }
 
-  // Close any open "..." menu or confirm pop-up, so they don't pile up on
-  // screen. Try the gentle ways first (Escape, click the dark backdrop), then
-  // as a last resort remove the leftover pop-up layer outright.
+  // Close any open "..." menu or confirm pop-up the way a person would: click
+  // the dark backdrop X puts behind it, or press Escape. We never remove X's
+  // own elements — doing that breaks X's menus for the rest of the session.
   async function closeAnyMenu() {
     const isOpen = () => document.querySelector(SEL.menu)
       || document.querySelector('[role="menu"]')
       || document.querySelector('[data-testid="mask"]');
-    for (let i = 0; i < 4 && isOpen(); i++) {
-      document.dispatchEvent(escapeKey());
-      (document.activeElement || document.body).dispatchEvent(escapeKey());
-      await sleep(120);
+    for (let i = 0; i < 5 && isOpen(); i++) {
       const mask = document.querySelector('[data-testid="mask"]');
-      if (mask) { try { mask.click(); } catch (e) { /* ignore */ } await sleep(120); }
-    }
-    if (isOpen()) {
-      for (const m of document.querySelectorAll(SEL.menu + ', [role="menu"]')) {
-        const layer = (m.closest && m.closest("#layers > *")) || m.parentElement;
-        try { (layer || m).remove(); } catch (e) { /* ignore */ }
-      }
+      if (mask) { try { mask.click(); } catch (e) { /* ignore */ } }
+      document.dispatchEvent(escapeKey());
+      document.dispatchEvent(new KeyboardEvent("keyup", { key: "Escape",
+        keyCode: 27, which: 27, bubbles: true }));
+      await sleep(140);
     }
   }
 
