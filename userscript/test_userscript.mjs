@@ -128,6 +128,24 @@ try {
     JSON.stringify(remaining) === JSON.stringify(["101", "103", "104"]));
   ok("no errors", err === "0");
   ok("no page exceptions", problems.length === 0);
+
+  // The panel must still appear under enforced Trusted Types + a CSP that
+  // blocks inline <style> — which is what x.com does and what hid the panel
+  // before. addScriptTag runs in the page's main world, so this is strict.
+  const tt = await browser.newPage();
+  const ttErrs = [];
+  tt.on("pageerror", (e) => ttErrs.push(e.message));
+  await tt.setContent(
+    `<!doctype html><meta http-equiv="Content-Security-Policy" ` +
+    `content="require-trusted-types-for 'script'; style-src 'self'"><body><h1>x</h1></body>`);
+  // evaluate() runs the code in the page's main world (unlike addScriptTag it
+  // doesn't use the TT-blocked script.text sink), so the script's own DOM
+  // building is what's exercised against Trusted Types.
+  await tt.evaluate(SCRIPT).catch((e) => ttErrs.push(String(e)));
+  const built = await tt.waitForSelector("#tweetus-deletus-panel", { timeout: 5000 }).then(() => true).catch(() => false);
+  ok("panel appears under Trusted Types + strict CSP", built);
+  ok("Start button is present there", await tt.$("#tdp-start") !== null);
+  ok("no Trusted-Types exception", !ttErrs.some((m) => /trusted|innerHTML/i.test(m)));
 } finally {
   await browser.close();
   server.close();

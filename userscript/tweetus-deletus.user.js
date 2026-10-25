@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         Tweetus Deletus
 // @namespace    app.tweetusdeletus
-// @version      1.0.0
+// @version      1.0.1
 // @description  Delete your own X (Twitter) posts in bulk, slowly and safely, from your own browser. Free.
 // @author       Tweetus Deletus
-// @match        https://x.com/*
-// @match        https://twitter.com/*
+// @match        *://x.com/*
+// @match        *://www.x.com/*
+// @match        *://twitter.com/*
+// @match        *://www.twitter.com/*
 // @run-at       document-idle
 // @grant        none
 // @license      MIT
@@ -329,89 +331,126 @@
   // ---------------------------------------------------------------- panel UI
   let panel, statusEl, countEl, startBtn;
 
-  function buildPanel() {
-    panel = document.createElement("div");
-    panel.id = "tweetus-deletus-panel";
-    panel.innerHTML = `
-      <style>
-        #tweetus-deletus-panel{position:fixed;top:14px;right:14px;z-index:2147483647;
-          width:300px;background:#fff;color:#17151f;border:1px solid #e5e2ee;border-radius:14px;
-          box-shadow:0 8px 30px rgba(0,0,0,.18);font:14px/1.45 system-ui,sans-serif;overflow:hidden}
-        @media (prefers-color-scheme:dark){#tweetus-deletus-panel{background:#18161f;color:#ecebf3;border-color:#2a2734}}
-        #tweetus-deletus-panel *{box-sizing:border-box}
-        .tdp-head{background:#6d4aff;color:#fff;padding:11px 14px;font-weight:700;display:flex;
-          align-items:center;justify-content:space-between}
-        .tdp-head button{background:rgba(255,255,255,.2);border:0;color:#fff;border-radius:6px;
-          cursor:pointer;font:inherit;padding:2px 8px}
-        .tdp-body{padding:14px;display:flex;flex-direction:column;gap:11px}
-        .tdp-row{display:flex;align-items:center;gap:8px;justify-content:space-between}
-        .tdp-row label{font-weight:500}
-        #tweetus-deletus-panel select,#tweetus-deletus-panel input[type=number],
-        #tweetus-deletus-panel input[type=text]{font:inherit;padding:5px 8px;border-radius:7px;
-          border:1px solid #cfcadd;background:#fff;color:#17151f}
-        @media (prefers-color-scheme:dark){#tweetus-deletus-panel select,
-          #tweetus-deletus-panel input{background:#232030;color:#ecebf3;border-color:#3a3647}}
-        #tweetus-deletus-panel input[type=text]{width:100%}
-        .tdp-hint{font-size:12px;opacity:.7}
-        .tdp-start{background:#6d4aff;color:#fff;border:0;border-radius:10px;padding:11px;
-          font:inherit;font-weight:700;cursor:pointer;width:100%}
-        .tdp-start.stop{background:#d93a40}
-        .tdp-start:disabled{opacity:.5;cursor:not-allowed}
-        .tdp-count{font-weight:700;font-size:15px}
-        .tdp-status{font-size:12.5px;min-height:2.6em;opacity:.85}
-        .tdp-link{background:none;border:0;color:#6d4aff;cursor:pointer;font:inherit;
-          text-decoration:underline;padding:0}
-        .tdp-warn{font-size:11.5px;opacity:.65}
-      </style>
-      <div class="tdp-head"><span>🪄 Tweetus Deletus</span>
-        <button id="tdp-min" title="Hide">–</button></div>
-      <div class="tdp-body" id="tdp-body">
-        <div id="tdp-settings">
-          <div class="tdp-row"><label>Speed</label>
-            <select id="tdp-pace"></select></div>
-          <div class="tdp-row"><label><input type="checkbox" id="tdp-pinned"> Keep my pinned post</label></div>
-          <div class="tdp-row"><label>Only older than</label>
-            <span><input type="number" id="tdp-older" min="0" style="width:70px"> days</span></div>
-          <div><input type="text" id="tdp-words" placeholder="Keep anything saying… (comma separated)"></div>
-          <div class="tdp-hint">Go to your profile first. On the <b>Posts</b> tab it deletes
-            posts &amp; reposts; on <b>Replies</b> it deletes replies.</div>
-        </div>
-        <div class="tdp-count"><span id="tdp-deleted">0</span> deleted
-          · <span id="tdp-skip">0</span> kept · <span id="tdp-err">0</span> errors</div>
-        <div class="tdp-status" id="tdp-status">Ready when you are.</div>
-        <button class="tdp-start" id="tdp-start">Start</button>
-        <div class="tdp-row">
-          <button class="tdp-link" id="tdp-save">Download list of deleted</button>
-        </div>
-        <div class="tdp-warn">Deleting is permanent. This automates X, which breaks their
-          rules, so go slow and start small. It only ever deletes posts you can delete yourself.</div>
-      </div>`;
-    document.body.appendChild(panel);
+  // Full look of the panel. Injected as a constructed stylesheet, which the
+  // page's security policy (CSP) can't block — unlike an inline <style> tag.
+  const PANEL_CSS = `
+    #tweetus-deletus-panel{position:fixed;top:14px;right:14px;z-index:2147483647;
+      width:300px;background:#18161f;color:#ecebf3;border:1px solid #2a2734;border-radius:14px;
+      box-shadow:0 8px 30px rgba(0,0,0,.35);font:14px/1.45 system-ui,sans-serif;overflow:hidden}
+    #tweetus-deletus-panel *{box-sizing:border-box}
+    #tweetus-deletus-panel .tdp-head{background:#6d4aff;color:#fff;padding:11px 14px;font-weight:700;display:flex;
+      align-items:center;justify-content:space-between}
+    #tweetus-deletus-panel .tdp-head button{background:rgba(255,255,255,.2);border:0;color:#fff;border-radius:6px;
+      cursor:pointer;font:inherit;padding:2px 8px}
+    #tweetus-deletus-panel .tdp-body{padding:14px;display:flex;flex-direction:column;gap:11px}
+    #tweetus-deletus-panel .tdp-row{display:flex;align-items:center;gap:8px;justify-content:space-between}
+    #tweetus-deletus-panel .tdp-row label{font-weight:500}
+    #tweetus-deletus-panel select,#tweetus-deletus-panel input[type=number],
+    #tweetus-deletus-panel input[type=text]{font:inherit;padding:5px 8px;border-radius:7px;
+      border:1px solid #3a3647;background:#232030;color:#ecebf3}
+    #tweetus-deletus-panel input[type=text]{width:100%}
+    #tweetus-deletus-panel .tdp-num{width:72px}
+    #tweetus-deletus-panel .tdp-hint{font-size:12px;opacity:.7}
+    #tweetus-deletus-panel .tdp-start{background:#6d4aff;color:#fff;border:0;border-radius:10px;padding:11px;
+      font:inherit;font-weight:700;cursor:pointer;width:100%}
+    #tweetus-deletus-panel .tdp-start.stop{background:#d93a40}
+    #tweetus-deletus-panel .tdp-start:disabled{opacity:.5;cursor:not-allowed}
+    #tweetus-deletus-panel .tdp-count{font-weight:700;font-size:15px}
+    #tweetus-deletus-panel .tdp-status{font-size:12.5px;min-height:2.6em;opacity:.85}
+    #tweetus-deletus-panel .tdp-link{background:none;border:0;color:#b9a9ff;cursor:pointer;font:inherit;
+      text-decoration:underline;padding:0}
+    #tweetus-deletus-panel .tdp-warn{font-size:11.5px;opacity:.65}`;
 
-    statusEl = panel.querySelector("#tdp-status");
-    countEl = panel.querySelector("#tdp-deleted");
-    startBtn = panel.querySelector("#tdp-start");
+  function injectStyles() {
+    try {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(PANEL_CSS);
+      document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+      return;
+    } catch (e) { /* older browser: fall back to a <style> element */ }
+    try {
+      const el = document.createElement("style");
+      el.textContent = PANEL_CSS;
+      (document.head || document.documentElement).appendChild(el);
+    } catch (e) { /* the inline container styles below still show the panel */ }
+  }
 
-    const paceSel = panel.querySelector("#tdp-pace");
-    for (const [key, p] of Object.entries(PACES)) {
-      const o = document.createElement("option");
-      o.value = key; o.textContent = p.label; paceSel.appendChild(o);
+  // Tiny DOM builder. We never use innerHTML, because X enforces Trusted
+  // Types, which makes innerHTML throw — that would stop the panel appearing.
+  function h(tag, props, ...kids) {
+    const n = document.createElement(tag);
+    if (props) for (const [k, v] of Object.entries(props)) {
+      if (k === "class") n.className = v;
+      else if (k === "text") n.textContent = v;
+      else if (k === "html") { /* intentionally unsupported */ }
+      else if (k in n) { try { n[k] = v; } catch { n.setAttribute(k, v); } }
+      else n.setAttribute(k, v);
     }
-    paceSel.value = S.settings.pace;
-    panel.querySelector("#tdp-pinned").checked = S.settings.keepPinned;
-    panel.querySelector("#tdp-older").value = S.settings.olderThanDays;
-    panel.querySelector("#tdp-words").value = S.settings.keepWords;
+    for (const kid of kids.flat()) {
+      if (kid == null || kid === false) continue;
+      n.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+    }
+    return n;
+  }
 
+  let paceSel, pinnedBox, olderBox, wordsBox, bodyEl, settingsEl, skipEl, errEl;
+
+  function buildPanel() {
+    injectStyles();
+    panel = h("div", { id: "tweetus-deletus-panel" });
+    // The essentials are also set straight on the element, so the panel shows
+    // even if the page blocks every stylesheet.
+    Object.assign(panel.style, {
+      position: "fixed", top: "14px", right: "14px", zIndex: "2147483647",
+      width: "300px", background: "#18161f", color: "#ecebf3",
+      border: "1px solid #2a2734", borderRadius: "14px",
+      boxShadow: "0 8px 30px rgba(0,0,0,.35)", overflow: "hidden",
+      font: "14px/1.45 system-ui, sans-serif",
+    });
+
+    paceSel = h("select", { id: "tdp-pace" });
+    for (const [key, p] of Object.entries(PACES))
+      paceSel.append(h("option", { value: key, text: p.label }));
+    paceSel.value = S.settings.pace;
     paceSel.onchange = (e) => { S.settings.pace = e.target.value; saveSettings(); };
-    panel.querySelector("#tdp-pinned").onchange = (e) => { S.settings.keepPinned = e.target.checked; saveSettings(); };
-    panel.querySelector("#tdp-older").onchange = (e) => { S.settings.olderThanDays = e.target.value; saveSettings(); };
-    panel.querySelector("#tdp-words").onchange = (e) => { S.settings.keepWords = e.target.value; saveSettings(); };
-    startBtn.onclick = onStartStop;
-    panel.querySelector("#tdp-save").onclick = downloadLog;
-    panel.querySelector("#tdp-min").onclick = () => {
-      const b = panel.querySelector("#tdp-body");
-      b.style.display = b.style.display === "none" ? "" : "none";
-    };
+
+    pinnedBox = h("input", { type: "checkbox", checked: S.settings.keepPinned });
+    pinnedBox.onchange = (e) => { S.settings.keepPinned = e.target.checked; saveSettings(); };
+    olderBox = h("input", { type: "number", min: "0", class: "tdp-num", value: S.settings.olderThanDays });
+    olderBox.onchange = (e) => { S.settings.olderThanDays = e.target.value; saveSettings(); };
+    wordsBox = h("input", { type: "text", value: S.settings.keepWords,
+      placeholder: "Keep anything saying… (comma separated)" });
+    wordsBox.onchange = (e) => { S.settings.keepWords = e.target.value; saveSettings(); };
+
+    countEl = h("span", { id: "tdp-deleted", text: "0" });
+    skipEl = h("span", { id: "tdp-skip", text: "0" });
+    errEl = h("span", { id: "tdp-err", text: "0" });
+    statusEl = h("div", { id: "tdp-status", class: "tdp-status", text: "Ready when you are." });
+    startBtn = h("button", { id: "tdp-start", class: "tdp-start", text: "Start", onclick: onStartStop });
+    const saveBtn = h("button", { class: "tdp-link", text: "Download list of deleted", onclick: downloadLog });
+    const minBtn = h("button", { id: "tdp-min", title: "Hide", text: "–",
+      onclick: () => { bodyEl.style.display = bodyEl.style.display === "none" ? "" : "none"; } });
+
+    settingsEl = h("div", {},
+      h("div", { class: "tdp-row" }, h("label", { text: "Speed" }), paceSel),
+      h("div", { class: "tdp-row" }, h("label", {}, pinnedBox, " Keep my pinned post")),
+      h("div", { class: "tdp-row" }, h("label", { text: "Only older than" }),
+        h("span", {}, olderBox, " days")),
+      h("div", {}, wordsBox),
+      h("div", { class: "tdp-hint" }, "Go to your profile first. On the Posts tab it deletes posts & reposts; on Replies it deletes replies."));
+
+    bodyEl = h("div", { class: "tdp-body" },
+      settingsEl,
+      h("div", { class: "tdp-count" }, countEl, " deleted · ", skipEl, " kept · ", errEl, " errors"),
+      statusEl,
+      startBtn,
+      h("div", { class: "tdp-row" }, saveBtn),
+      h("div", { class: "tdp-warn" }, "Deleting is permanent. This automates X, which breaks their rules, so go slow and start small. It only ever deletes posts you can delete yourself."));
+
+    panel.append(
+      h("div", { class: "tdp-head" }, h("span", { text: "🪄 Tweetus Deletus" }), minBtn),
+      bodyEl);
+    document.body.appendChild(panel);
   }
 
   function onStartStop() {
@@ -445,12 +484,12 @@
   function setStatus(msg) { if (statusEl) statusEl.textContent = msg; }
   function render() {
     if (!panel) return;
-    panel.querySelector("#tdp-deleted").textContent = S.deleted;
-    panel.querySelector("#tdp-skip").textContent = S.skipped;
-    panel.querySelector("#tdp-err").textContent = S.errors;
+    countEl.textContent = S.deleted;
+    skipEl.textContent = S.skipped;
+    errEl.textContent = S.errors;
     startBtn.textContent = S.running ? "Stop" : "Start";
     startBtn.classList.toggle("stop", S.running);
-    panel.querySelector("#tdp-settings").style.opacity = S.running ? ".5" : "1";
+    settingsEl.style.opacity = S.running ? ".5" : "1";
   }
 
   // Wait for the page to be ready, then show the panel.
@@ -458,6 +497,13 @@
     if (!document.body) { setTimeout(init, 300); return; }
     buildPanel();
     render();
+    // X is a single-page app and can wipe things on navigation; if our panel
+    // ever disappears, put it back.
+    setInterval(() => {
+      if (!document.getElementById("tweetus-deletus-panel") && !S.running) {
+        try { buildPanel(); render(); } catch (e) { /* try again next tick */ }
+      }
+    }, 3000);
   }
   init();
 })();
