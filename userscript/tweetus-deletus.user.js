@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tweetus Deletus
 // @namespace    app.tweetusdeletus
-// @version      1.0.1
+// @version      1.0.2
 // @description  Delete your own X (Twitter) posts in bulk, slowly and safely, from your own browser. Free.
 // @author       Tweetus Deletus
 // @match        *://x.com/*
@@ -364,6 +364,12 @@
     #tweetus-deletus-panel .tdp-warn{font-size:11.5px;opacity:.65}`;
 
   function injectStyles() {
+    // GM_addStyle (from Tampermonkey) adds styles from the extension, past the
+    // page's security policy. Then a constructed stylesheet, then a plain
+    // <style>. The panel's own inline styles below are the final safety net.
+    try {
+      if (typeof GM_addStyle === "function") { GM_addStyle(PANEL_CSS); return; }
+    } catch (e) { /* fall through */ }
     try {
       const sheet = new CSSStyleSheet();
       sheet.replaceSync(PANEL_CSS);
@@ -455,18 +461,57 @@
     document.body.appendChild(panel);
   }
 
+  // Pages that are NOT someone's profile. Anything else of the form /name or
+  // /name/<tab> is treated as a profile.
+  const NON_PROFILE = new Set(["home", "explore", "notifications", "messages",
+    "i", "settings", "compose", "search", "bookmarks", "lists", "jobs",
+    "communities", "premium", "hashtag", "tos", "privacy", "login", "logout",
+    "account", "intent", "share", "download"]);
+  const PROFILE_TABS = /^(with_replies|media|likes|highlights|articles|superfollows|affiliates)$/;
+
+  function onProfile() {
+    const seg = location.pathname.replace(/\/+$/, "").split("/").filter(Boolean);
+    if (seg.length === 1) return !NON_PROFILE.has(seg[0].toLowerCase());
+    if (seg.length === 2) return PROFILE_TABS.test(seg[1].toLowerCase());
+    return false;
+  }
+
+  let awaitingConfirm = false;
+  let confirmTimer = null;
+
+  function resetConfirm() {
+    awaitingConfirm = false;
+    if (confirmTimer) { clearTimeout(confirmTimer); confirmTimer = null; }
+    render();
+  }
+
+  // We do our own two-tap confirm instead of window.confirm(), because X
+  // blocks pop-up dialogs from scripts (so the native one silently does
+  // nothing).
   function onStartStop() {
     if (S.running) { S.stopRequested = true; setStatus("Stopping…"); return; }
-    const where = location.pathname;
-    const looksLikeProfile = /^\/[A-Za-z0-9_]+(\/with_replies)?\/?$/.test(where);
-    if (!looksLikeProfile) {
-      setStatus("Open YOUR profile first (click your picture), then press Start.");
+
+    if (!onProfile()) {
+      resetConfirm();
+      setStatus("Go to your OWN profile page first — click your picture or @name, "
+        + "then press Start. (This page is " + location.pathname + ".)");
       return;
     }
-    if (!confirm("Delete the posts shown on this profile tab?\n\n" +
-        "This can't be undone. It goes slowly — leave this tab open and in front. " +
-        "You can press Stop any time.")) return;
+
+    if (!awaitingConfirm) {
+      awaitingConfirm = true;
+      startBtn.textContent = "Yes — start deleting";
+      startBtn.classList.add("stop");
+      setStatus("This permanently deletes the posts shown on this tab. "
+        + "Press the button once more to begin. (Resets in 15s.)");
+      confirmTimer = setTimeout(resetConfirm, 15000);
+      return;
+    }
+
+    awaitingConfirm = false;
+    if (confirmTimer) { clearTimeout(confirmTimer); confirmTimer = null; }
     S.running = true; S.stopRequested = false; S.sinceRest = 0;
+    setStatus("Starting…");
     render();
     run();
   }
@@ -489,8 +534,8 @@
     countEl.textContent = S.deleted;
     skipEl.textContent = S.skipped;
     errEl.textContent = S.errors;
-    startBtn.textContent = S.running ? "Stop" : "Start";
-    startBtn.classList.toggle("stop", S.running);
+    startBtn.textContent = S.running ? "Stop" : (awaitingConfirm ? "Yes — start deleting" : "Start");
+    startBtn.classList.toggle("stop", S.running || awaitingConfirm);
     settingsEl.style.opacity = S.running ? ".5" : "1";
   }
 

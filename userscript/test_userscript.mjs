@@ -95,8 +95,9 @@ function pageHtml() {
 }
 
 const server = http.createServer((req, res) => {
-  if (req.url.startsWith("/testuser")) { res.setHeader("Content-Type", "text/html"); res.end(pageHtml()); }
-  else { res.statusCode = 404; res.end("no"); }
+  // Serve the same mock page at any path, so location.pathname can vary.
+  res.setHeader("Content-Type", "text/html");
+  res.end(pageHtml());
 });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const port = server.address().port;
@@ -115,7 +116,9 @@ try {
   });
   await p.addScriptTag({ content: SCRIPT });
   await p.waitForSelector("#tweetus-deletus-panel");
-  await p.click("#tdp-start");
+  await p.click("#tdp-start");                       // arms the two-tap confirm
+  ok("Start arms a confirm step", /once more/i.test(await p.$eval("#tdp-status", (e) => e.textContent)));
+  await p.click("#tdp-start");                       // confirms -> begins
   await p.waitForFunction(
     () => /All done|Stopped|changed/.test(document.querySelector("#tdp-status").textContent),
     null, { timeout: 70000 });
@@ -128,6 +131,31 @@ try {
     JSON.stringify(remaining) === JSON.stringify(["101", "103", "104"]));
   ok("no errors", err === "0");
   ok("no page exceptions", problems.length === 0);
+
+  // Profile gate: on a non-profile page, Start must refuse; on a profile it
+  // must arm. (The user's bug was Start doing nothing on their profile.)
+  const gate = await browser.newPage();
+  gate.on("dialog", (d) => d.accept());
+  await gate.goto(`http://127.0.0.1:${port}/home`);
+  await gate.addScriptTag({ content: SCRIPT });
+  await gate.waitForSelector("#tdp-start");
+  await gate.click("#tdp-start");
+  ok("Start refuses on a non-profile page (/home)",
+    /profile page first/i.test(await gate.$eval("#tdp-status", (e) => e.textContent)));
+  const prof = await browser.newPage();
+  prof.on("dialog", (d) => d.accept());
+  await prof.goto(`http://127.0.0.1:${port}/hanibanhi`);
+  await prof.addScriptTag({ content: SCRIPT });
+  await prof.waitForSelector("#tdp-start");
+  await prof.click("#tdp-start");
+  ok("Start arms on a real profile path (/hanibanhi)",
+    /once more/i.test(await prof.$eval("#tdp-status", (e) => e.textContent)));
+  await prof.goto(`http://127.0.0.1:${port}/hanibanhi/with_replies`);
+  await prof.addScriptTag({ content: SCRIPT });
+  await prof.waitForSelector("#tdp-start");
+  await prof.click("#tdp-start");
+  ok("Start arms on the Replies tab too",
+    /once more/i.test(await prof.$eval("#tdp-status", (e) => e.textContent)));
 
   // The panel must still appear under enforced Trusted Types + a CSP that
   // blocks inline <style> — which is what x.com does and what hid the panel
