@@ -13,3 +13,4 @@ tokens.json
 *.csv
 twitter-*.zip
 x-export*/
+.build-venv/
