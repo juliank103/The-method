@@ -11,6 +11,8 @@
 // @run-at       document-idle
 // @grant        none
 // @license      MIT
+// @updateURL    https://raw.githubusercontent.com/juliank103/The-method/claude/pensive-goodall-9btu4p/userscript/tweetus-deletus.user.js
+// @downloadURL  https://raw.githubusercontent.com/juliank103/The-method/claude/pensive-goodall-9btu4p/userscript/tweetus-deletus.user.js
 // ==/UserScript==
 
 /*
