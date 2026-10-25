@@ -141,7 +141,7 @@ try {
   await gate.waitForSelector("#tdp-start");
   await gate.click("#tdp-start");
   ok("Start refuses on a non-profile page (/home)",
-    /profile page first/i.test(await gate.$eval("#tdp-status", (e) => e.textContent)));
+    /open your profile/i.test(await gate.$eval("#tdp-status", (e) => e.textContent)));
   const prof = await browser.newPage();
   prof.on("dialog", (d) => d.accept());
   await prof.goto(`http://127.0.0.1:${port}/hanibanhi`);

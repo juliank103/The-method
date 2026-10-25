@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tweetus Deletus
 // @namespace    app.tweetusdeletus
-// @version      1.0.2
+// @version      1.0.3
 // @description  Delete your own X (Twitter) posts in bulk, slowly and safely, from your own browser. Free.
 // @author       Tweetus Deletus
 // @match        *://x.com/*
@@ -275,7 +275,13 @@
         setStatus("Loading more posts…");
         const got = await loadMore();
         emptyScrolls = got ? 0 : emptyScrolls + 1;
-        if (emptyScrolls >= 4) { setStatus("Reached the end. All done."); break; }
+        if (emptyScrolls >= 4) {
+          setStatus(S.deleted
+            ? "Reached the end. All done. 🎉"
+            : "I didn't find any of your posts on this page. Open your profile and "
+              + "make sure your tweets are showing (the 'All' or 'Posts' tab), then press Start.");
+          break;
+        }
         continue;
       }
 
@@ -404,6 +410,8 @@
   let paceSel, pinnedBox, olderBox, wordsBox, bodyEl, settingsEl, skipEl, errEl;
 
   function buildPanel() {
+    const old = document.getElementById("tweetus-deletus-panel");
+    if (old) old.remove();
     injectStyles();
     panel = h("div", { id: "tweetus-deletus-panel" });
     // The essentials are also set straight on the element, so the panel shows
@@ -461,19 +469,18 @@
     document.body.appendChild(panel);
   }
 
-  // Pages that are NOT someone's profile. Anything else of the form /name or
-  // /name/<tab> is treated as a profile.
-  const NON_PROFILE = new Set(["home", "explore", "notifications", "messages",
-    "i", "settings", "compose", "search", "bookmarks", "lists", "jobs",
-    "communities", "premium", "hashtag", "tos", "privacy", "login", "logout",
-    "account", "intent", "share", "download"]);
-  const PROFILE_TABS = /^(with_replies|media|likes|highlights|articles|superfollows|affiliates)$/;
+  // X moves its profile tabs around ("Posts" vs "All" vs "Replies"…), so we
+  // don't try to recognise a profile by its URL. We just refuse the few pages
+  // that clearly aren't your posts; everywhere else, Start works and the scan
+  // only ever deletes posts X lets YOU delete (your own).
+  const BLOCKED = new Set(["home", "explore", "notifications", "messages",
+    "i", "settings", "compose", "search", "jobs", "lists", "premium", "grok",
+    "bookmarks", "communities"]);
 
-  function onProfile() {
+  function canRunHere() {
     const seg = location.pathname.replace(/\/+$/, "").split("/").filter(Boolean);
-    if (seg.length === 1) return !NON_PROFILE.has(seg[0].toLowerCase());
-    if (seg.length === 2) return PROFILE_TABS.test(seg[1].toLowerCase());
-    return false;
+    if (seg.length === 0) return false;            // x.com itself
+    return !BLOCKED.has(seg[0].toLowerCase());
   }
 
   let awaitingConfirm = false;
@@ -491,10 +498,9 @@
   function onStartStop() {
     if (S.running) { S.stopRequested = true; setStatus("Stopping…"); return; }
 
-    if (!onProfile()) {
+    if (!canRunHere()) {
       resetConfirm();
-      setStatus("Go to your OWN profile page first — click your picture or @name, "
-        + "then press Start. (This page is " + location.pathname + ".)");
+      setStatus("Open your profile first (click Profile in the left menu), then press Start.");
       return;
     }
 
@@ -502,7 +508,7 @@
       awaitingConfirm = true;
       startBtn.textContent = "Yes — start deleting";
       startBtn.classList.add("stop");
-      setStatus("This permanently deletes the posts shown on this tab. "
+      setStatus("This permanently deletes your posts shown here. "
         + "Press the button once more to begin. (Resets in 15s.)");
       confirmTimer = setTimeout(resetConfirm, 15000);
       return;
@@ -544,13 +550,27 @@
     if (!document.body) { setTimeout(init, 300); return; }
     buildPanel();
     render();
-    // X is a single-page app and can wipe things on navigation; if our panel
-    // ever disappears, put it back.
-    setInterval(() => {
+
+    // X is a single-page app and can wipe our panel when you switch tabs or
+    // navigate. Put it back whenever it's gone, both on a timer and right after
+    // any in-app navigation.
+    const ensure = () => {
       if (!document.getElementById("tweetus-deletus-panel") && !S.running) {
         try { buildPanel(); render(); } catch (e) { /* try again next tick */ }
       }
-    }, 3000);
+    };
+    setInterval(ensure, 1500);
+    try {
+      for (const m of ["pushState", "replaceState"]) {
+        const orig = history[m];
+        history[m] = function () {
+          const r = orig.apply(this, arguments);
+          setTimeout(ensure, 50);
+          return r;
+        };
+      }
+      window.addEventListener("popstate", () => setTimeout(ensure, 50));
+    } catch (e) { /* the timer still covers it */ }
   }
   init();
 })();
