@@ -22,6 +22,7 @@
       <button type="button" data-tab="settings">Settings</button>
     </nav>
     <div class="account-chip" id="account-chip"></div>
+    <button type="button" class="quit-btn" id="quit-btn" title="Close Tweetus Deletus">Quit</button>
   </div>
 </header>
 
@@ -33,12 +34,25 @@
     <p class="muted">Loading…</p>
   </section>
 
+  <!-- ============ CONNECT (app already set up) ============ -->
+  <section id="view-connect" class="view narrow" hidden>
+    <div class="card welcome">
+      <img src="/static/icon.svg" alt="" width="72" height="72">
+      <h1>Clean up your X account</h1>
+      <p class="muted">Delete old posts, likes and more in a few clicks.
+        Nothing is deleted until you say so.</p>
+      <a class="btn primary big" href="/login">Connect with X</a>
+      <p class="hint">You'll sign in on X, then come right back here.</p>
+    </div>
+  </section>
+
   <!-- ============ SETUP ============ -->
   <section id="view-setup" class="view narrow" hidden>
     <div class="hero">
-      <h1>Make your posts vanish.</h1>
-      <p>Delete your X posts, replies, reposts, likes, bookmarks, messages and
-        more, in bulk and with filters. It runs on your own computer.</p>
+      <h1>One-time setup</h1>
+      <p>X only lets apps delete posts through its official API, so this needs an
+        X developer app. Whoever sets Tweetus Deletus up does this once. If someone
+        set it up for you, ask them for the Client ID and skip to step 2.</p>
     </div>
 
     <ol class="steps">
@@ -103,7 +117,66 @@
   <!-- ============ DELETE ============ -->
   <section id="view-delete" class="view" hidden>
 
-    <div id="delete-form">
+    <div id="delete-home" class="home">
+      <div class="home-head">
+        <h1 id="home-hello">What should disappear?</h1>
+        <p class="muted">Pick one. You'll see everything before anything is deleted.</p>
+      </div>
+      <div class="presets">
+        <div class="preset">
+          <button type="button" class="preset-main" data-preset="old">
+            <span class="preset-icon" aria-hidden="true">🕰️</span>
+            <span class="preset-text"><b>Old posts</b>
+              <span>Posts, replies and reposts older than the age you pick</span></span>
+          </button>
+          <label class="preset-extra">older than
+            <select id="preset-age" aria-label="How old">
+              <option value="30">1 month</option>
+              <option value="90">3 months</option>
+              <option value="180">6 months</option>
+              <option value="365" selected>1 year</option>
+              <option value="730">2 years</option>
+              <option value="1825">5 years</option>
+            </select>
+          </label>
+        </div>
+        <div class="preset">
+          <button type="button" class="preset-main" data-preset="posts">
+            <span class="preset-icon" aria-hidden="true">🧹</span>
+            <span class="preset-text"><b>All my posts</b>
+              <span>Every post, reply and repost</span></span>
+          </button>
+        </div>
+        <div class="preset">
+          <button type="button" class="preset-main" data-preset="likes">
+            <span class="preset-icon" aria-hidden="true">💔</span>
+            <span class="preset-text"><b>My likes</b>
+              <span>Un-like everything you've liked</span></span>
+          </button>
+        </div>
+        <div class="preset">
+          <button type="button" class="preset-main" data-preset="bookmarks">
+            <span class="preset-icon" aria-hidden="true">🔖</span>
+            <span class="preset-text"><b>My bookmarks</b>
+              <span>Clear out everything you've saved</span></span>
+          </button>
+        </div>
+        <div class="preset">
+          <button type="button" class="preset-main" data-preset="everything">
+            <span class="preset-icon" aria-hidden="true">✨</span>
+            <span class="preset-text"><b>Everything</b>
+              <span>Posts, replies, reposts, likes and bookmarks. A fresh start.</span></span>
+          </button>
+        </div>
+      </div>
+      <p class="hint center">Your pinned post is always kept, and so is anything on your
+        always-keep list.</p>
+      <p class="center"><button type="button" class="link-btn" id="go-custom">Something more
+        specific? Make a custom search →</button></p>
+    </div>
+
+    <div id="delete-form" hidden>
+      <p><button type="button" class="link-btn" id="custom-back">← Back to the simple choices</button></p>
       <div class="card">
         <div class="card-head">
           <span class="num">1</span>
@@ -291,6 +364,8 @@
           </div>
           <button type="button" class="btn ghost" id="results-back">← Change filters</button>
         </div>
+        <p class="results-help" id="results-help">Uncheck anything you want to keep.</p>
+        <p class="banner info" id="results-cap" hidden></p>
         <div class="toolbar" id="results-toolbar">
           <input type="search" id="results-search" class="grow" placeholder="Search these results" aria-label="Search results">
           <select id="results-kind" aria-label="Type"></select>
@@ -476,12 +551,21 @@
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <h2 id="modal-title"></h2>
     <p id="modal-body" class="muted"></p>
-    <label for="modal-input" id="modal-label">Type <b>DELETE</b> to confirm</label>
-    <input id="modal-input" autocomplete="off" spellcheck="false">
+    <label class="check modal-ack" id="modal-ack-row">
+      <input type="checkbox" id="modal-ack"> <span id="modal-ack-text">I understand this can't be undone</span>
+    </label>
     <div class="row end">
       <button type="button" class="btn ghost" id="modal-cancel">Cancel</button>
       <button type="button" class="btn danger" id="modal-ok" disabled>Delete forever</button>
     </div>
+  </div>
+</div>
+
+<div class="closed" id="closed" hidden>
+  <div class="card welcome">
+    <img src="/static/icon.svg" alt="" width="64" height="64">
+    <h1>Tweetus Deletus is closed</h1>
+    <p class="muted">You can close this tab. Open the app again whenever you need it.</p>
   </div>
 </div>
 

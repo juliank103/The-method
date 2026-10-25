@@ -242,6 +242,44 @@ class RealModeTests(ServerCase):
         self.assertEqual(q["code_challenge_method"], "S256")
         self.assertIn("offline.access", q["scope"])
 
+    def test_bundled_client_id_skips_setup(self):
+        from tweetus_deletus import config
+        bundled = os.path.join(self.tmp, "bundled.json")
+        with open(bundled, "w") as fh:
+            json.dump({"client_id": "BUILT_IN_ID"}, fh)
+        original = config.BUNDLED_PATH
+        config.BUNDLED_PATH = bundled
+        try:
+            _, st, _ = self.request("GET", "/api/status")
+            self.assertTrue(st["configured"])
+            self.assertTrue(st["bundled_client"])
+            status, _, resp = self.request("GET", "/login", token=False)
+            self.assertIn("client_id=BUILT_IN_ID", resp.getheader("Location"))
+            # Saving another setting mustn't copy the built-in id into the
+            # config file, or a later build with a new id couldn't take over.
+            status, data, _ = self.request("POST", "/api/setup", {
+                "client_id": "BUILT_IN_ID", "min_interval": "1"})
+            self.assertEqual(status, 200, data)
+            with open(os.path.join(self.tmp, "config.toml")) as fh:
+                self.assertNotIn("client_id", fh.read())
+            _, st, _ = self.request("GET", "/api/status")
+            self.assertTrue(st["bundled_client"])
+            self.assertEqual(st["min_interval"], 1.0)
+        finally:
+            config.BUNDLED_PATH = original
+
+    def test_quit_stops_the_server(self):
+        status, data, _ = self.request("POST", "/api/quit", {})
+        self.assertEqual(status, 200)
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            try:
+                self.request("GET", "/api/status")
+            except OSError:
+                return  # refused: the server is gone
+            time.sleep(0.1)
+        self.fail("server still answering after quit")
+
     def test_forged_callback_is_refused(self):
         self.request("POST", "/api/setup", {"client_id": "abc123"})
         status, _, resp = self.request(

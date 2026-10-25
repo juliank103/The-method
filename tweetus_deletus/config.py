@@ -20,6 +20,18 @@ from .errors import ConfigError
 
 DEFAULT_CONFIG_PATH = "~/.config/tweetus_deletus/config.toml"
 DEFAULT_REDIRECT = "http://127.0.0.1:8721/callback"
+# Whoever builds the app can bake their X app's Client ID in here, so the
+# people they give it to only ever see "Connect with X".
+BUNDLED_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "bundled.json")
+
+
+def bundled_client_id() -> str:
+    try:
+        with open(BUNDLED_PATH, "r", encoding="utf-8") as fh:
+            return str(json.load(fh).get("client_id") or "").strip()
+    except (OSError, ValueError, AttributeError):
+        return ""
 
 
 @dataclass
@@ -31,6 +43,8 @@ class Config:
     # politeness: minimum seconds between API calls (0 = as fast as limits allow)
     min_interval: float = 0.0
     path: str = ""
+    # True when client_id came from the built-in bundled.json
+    bundled: bool = False
 
     @classmethod
     def load(cls, path: str | None = None) -> "Config":
@@ -44,10 +58,16 @@ class Config:
                 raise ConfigError(f"Can't read {path}: {exc}") from exc
         app = data.get("app", data)  # allow a flat file or an [app] table
         default_tokens = os.path.join(os.path.dirname(path), "tokens.json")
+        client_id = (os.environ.get("TWEETUS_CLIENT_ID")
+                     or app.get("client_id", ""))
+        bundled = False
+        if not client_id:
+            client_id = bundled_client_id()
+            bundled = bool(client_id)
 
         return cls(
-            client_id=os.environ.get("TWEETUS_CLIENT_ID",
-                                     app.get("client_id", "")),
+            client_id=client_id,
+            bundled=bundled,
             client_secret=os.environ.get("TWEETUS_CLIENT_SECRET",
                                          app.get("client_secret")) or None,
             redirect_uri=os.environ.get("TWEETUS_REDIRECT_URI",
@@ -65,7 +85,9 @@ class Config:
             return json.dumps(value)  # a JSON string is a valid TOML string
 
         lines = ["# Written by Tweetus Deletus. Safe to edit by hand.", "",
-                 "[app]", f"client_id = {q(self.client_id)}"]
+                 "[app]"]
+        if self.client_id and not self.bundled:
+            lines.append(f"client_id = {q(self.client_id)}")
         if self.client_secret:
             lines.append(f"client_secret = {q(self.client_secret)}")
         lines.append(f"redirect_uri = {q(self.redirect_uri)}")

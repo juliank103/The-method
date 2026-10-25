@@ -176,20 +176,20 @@
   }
 
   let modalState = null;
-  function openModal({ title, body, phrase, ok, danger = true, onOk }) {
-    modalState = { phrase, onOk, returnFocus: document.activeElement };
+  function openModal({ title, body, ack, ok, danger = true, onOk }) {
+    modalState = { onOk, returnFocus: document.activeElement };
     $("modal-title").textContent = title;
     $("modal-body").textContent = body || "";
     const okBtn = $("modal-ok");
     okBtn.textContent = ok || "OK";
     okBtn.className = `btn ${danger ? "danger" : "primary"}`;
-    const input = $("modal-input");
-    input.value = "";
-    $("modal-label").hidden = input.hidden = !phrase;
-    if (phrase) $("modal-label").querySelector("b").textContent = phrase;
-    okBtn.disabled = !!phrase;
+    const box = $("modal-ack");
+    box.checked = false;
+    $("modal-ack-row").hidden = !ack;
+    if (ack) $("modal-ack-text").textContent = ack;
+    okBtn.disabled = !!ack;
     $("modal").hidden = false;
-    (phrase ? input : okBtn).focus();
+    (ack ? box : okBtn).focus();
   }
   function closeModal() {
     $("modal").hidden = true;
@@ -207,7 +207,7 @@
   // ---------- views ----------
   const TABS = ["delete", "auto", "history", "settings"];
   function showView(name) {
-    for (const v of ["loading", "setup", ...TABS]) $(`view-${v}`).hidden = v !== name;
+    for (const v of ["loading", "setup", "connect", ...TABS]) $(`view-${v}`).hidden = v !== name;
     for (const b of $("tabs").querySelectorAll("button")) {
       if (b.dataset.tab === name) b.setAttribute("aria-current", "page");
       else b.removeAttribute("aria-current");
@@ -229,8 +229,12 @@
   function route() {
     $("tabs").hidden = !ready();
     if (!ready()) {
-      renderSetup();
-      showView("setup");
+      if (S.status.configured) {
+        showView("connect");
+      } else {
+        renderSetup();
+        showView("setup");
+      }
       return;
     }
     go((location.hash || "").slice(1));
@@ -248,7 +252,7 @@
   function renderStatusBanners() {
     const st = S.status;
     if (st.demo) {
-      banner("warn", "Demo mode: this is a pretend account and nothing real is deleted. Start without --demo to use your own.", { id: "demo", sticky: true });
+      banner("warn", "Demo mode: this is a pretend account, so nothing real is deleted.", { id: "demo", sticky: true });
     }
     clearBanner("me");
     if (!st.demo && st.connected && !st.me && st.me_error) {
@@ -302,8 +306,7 @@
       clearErrors();
       toast("Saved. Now connect your account.");
       await refreshStatus();
-      renderSetup();
-      $("connect-btn").focus();
+      route();
     } catch (e) {
       banner("error", e.message);
     }
@@ -531,7 +534,7 @@
   }
 
   // ---------- delete flow stages ----------
-  const STAGES = { form: "delete-form", scanning: "scan-progress", results: "results", deleting: "delete-progress", done: "delete-done" };
+  const STAGES = { home: "delete-home", form: "delete-form", scanning: "scan-progress", results: "results", deleting: "delete-progress", done: "delete-done" };
   function stage(name) {
     for (const [k, id] of Object.entries(STAGES)) $(id).hidden = k !== name;
   }
@@ -546,12 +549,40 @@
     }
     clearErrors();
     saveForm();
+    S.origin = "form";
     try {
       const { job } = await api("/api/scan", { method: "POST", json: { types: [...S.types], source: S.source, filters } });
       attachJob(job);
     } catch (e) {
       banner("error", e.message);
     }
+  }
+
+  // One-click choices on the home screen. They read your account live and
+  // always keep the pinned post (and the always-keep list, server-side).
+  const POSTS = ["posts", "replies", "reposts"];
+  const PRESETS = {
+    old: () => ({ types: POSTS, filters: { older_than_days: $("preset-age").value, keep_pinned: true } }),
+    posts: () => ({ types: POSTS, filters: { keep_pinned: true } }),
+    likes: () => ({ types: ["likes"], filters: {} }),
+    bookmarks: () => ({ types: ["bookmarks"], filters: {} }),
+    everything: () => ({ types: [...POSTS, "likes", "bookmarks"], filters: { keep_pinned: true } }),
+  };
+  async function runPreset(name) {
+    const p = PRESETS[name]();
+    S.origin = "home";
+    clearErrors();
+    try {
+      const { job } = await api("/api/scan", { method: "POST", json: { types: p.types, source: "live", filters: p.filters } });
+      attachJob(job);
+    } catch (e) {
+      banner("error", e.message);
+    }
+  }
+  function backHome() {
+    S.scan = null;
+    stage("home");
+    window.scrollTo(0, 0);
   }
 
   // ---------- jobs ----------
@@ -569,6 +600,7 @@
     S.pollTimer = null;
   }
   async function poll() {
+    if (S.closed) return;
     let job;
     try { ({ job } = await api("/api/job")); } catch { return; }
     if (!job) { stopPolling(); return; }
@@ -583,7 +615,7 @@
   // Auto-delete runs on the server's own schedule; check in now and then so
   // the page notices runs it didn't start.
   async function idleRefresh() {
-    if (S.pollTimer || !S.status || !ready() || !$("modal").hidden) return;
+    if (S.closed || S.pollTimer || !S.status || !ready() || !$("modal").hidden) return;
     try { await refreshStatus(); } catch { return; }
     const job = S.status.job;
     const tracking = S.job && S.job.id === (job && job.id) && S.job.state === "running";
@@ -613,7 +645,7 @@
       if (job.state === "done") {
         await loadResults(job.id);
       } else {
-        stage("form");
+        stage(S.origin || "home");
         if (job.state === "error") banner("error", job.error);
         else toast("Stopped.");
       }
@@ -640,11 +672,12 @@
       S.page = 0; S.q = ""; S.kind = "";
       $("results-search").value = "";
       $("remember-unchecked").checked = false;
+      $("results-back").textContent = S.origin === "form" ? "← Change filters" : "← Back";
       stage("results");
       renderResults();
       window.scrollTo(0, 0);
     } catch (e) {
-      stage("form");
+      stage(S.origin || "home");
       banner("error", e.message);
     }
   }
@@ -681,6 +714,24 @@
     kindSel.hidden = kinds.length < 2;
     $("results-toolbar").hidden = all.length === 0;
     $("confirm-card").hidden = all.length === 0;
+    $("results-help").hidden = all.length === 0;
+
+    // X's live timeline stops around 3,200 posts; point at the archive.
+    const postCount = all.filter((it) => ["post", "reply", "quote", "repost"].includes(it.kind)).length;
+    const cap = $("results-cap");
+    const capped = (stats.sources || {}).posts === "live" && postCount + (stats.protected || 0) >= 3000;
+    cap.hidden = !capped;
+    if (capped) {
+      cap.replaceChildren(
+        el("span", { class: "grow", text: "X only lets apps see your latest ~3,200 posts. To reach older ones, use your X archive in a custom search." }),
+        el("button", { type: "button", class: "btn ghost small", text: "Use my archive", onclick: () => {
+          setSource("archive");
+          saveForm();
+          S.scan = null;
+          stage("form");
+          window.scrollTo(0, 0);
+        } }));
+    }
     renderResultPage();
   }
 
@@ -692,8 +743,8 @@
     const slice = rows.slice(S.page * PAGE, S.page * PAGE + PAGE);
     if (!S.scan.items.length) {
       list.replaceChildren(el("li", { class: "empty" },
-        el("p", { text: "Nothing matched these filters." }),
-        el("button", { type: "button", class: "btn ghost", text: "Change filters", onclick: backToForm })));
+        el("p", { text: S.origin === "form" ? "Nothing matched these filters." : "Nothing to delete here. You're all clean!" }),
+        el("button", { type: "button", class: "btn ghost", text: "Go back", onclick: backToForm })));
     } else if (!rows.length) {
       list.replaceChildren(el("li", { class: "empty", text: "Nothing in these results matches your search." }));
     } else {
@@ -766,7 +817,7 @@
 
   function backToForm() {
     S.scan = null;
-    stage("form");
+    stage(S.origin || "home");
     window.scrollTo(0, 0);
   }
 
@@ -778,9 +829,9 @@
     const what = Object.entries(counts).map(([k, c]) => plural(c, k)).join(", ");
     openModal({
       title: `Delete ${items(n)}?`,
-      body: `That's ${what}. This can't be undone on X. A copy of each one is saved in History on this computer.`,
-      phrase: n > 20 ? "DELETE" : null,
-      ok: "Delete forever",
+      body: `That's ${what}. A copy of each one is saved in History on this computer.`,
+      ack: "I understand they'll be gone from X for good",
+      ok: "Delete them",
       onOk: doDelete,
     });
   }
@@ -980,7 +1031,8 @@
     } else {
       acct.append(el("div", { class: "meta muted", text: "Not connected." }), el("a", { class: "btn primary small", href: "/login", text: "Connect with X" }));
     }
-    $("s-client-id").value = st.client_id || "";
+    $("s-client-id").value = st.bundled_client ? "" : st.client_id || "";
+    $("s-client-id").placeholder = st.bundled_client ? "Using the app built into Tweetus Deletus" : "";
     $("s-client-secret").value = "";
     $("s-client-secret").placeholder = st.has_secret ? "Saved (leave blank to keep it)" : "Only for “Web App” type apps";
     $("s-callback").textContent = st.redirect_uri;
@@ -992,7 +1044,8 @@
   }
   async function saveApp(ev) {
     ev.preventDefault();
-    const json = { client_id: $("s-client-id").value.trim(), min_interval: $("s-interval").value };
+    const typed = $("s-client-id").value.trim();
+    const json = { client_id: typed || (S.status.bundled_client ? S.status.client_id : ""), min_interval: $("s-interval").value };
     const secret = $("s-client-secret").value.trim();
     if (secret) json.client_secret = secret;
     const changed = json.client_id !== S.status.client_id;
@@ -1055,6 +1108,26 @@
     } catch (e) { banner("error", e.message); }
   }
 
+  // ---------- quit ----------
+  function quitApp() {
+    const running = S.job && S.job.state === "running";
+    const auto = S.status && S.status.auto && S.status.auto.enabled;
+    openModal({
+      title: "Quit Tweetus Deletus?",
+      body: running ? "Something is still running. Quitting stops it, but anything already deleted stays deleted."
+        : auto ? "Auto-delete only works while Tweetus Deletus is open."
+        : "You can open it again any time.",
+      ok: "Quit", danger: false,
+      onOk: async () => {
+        try { await api("/api/quit", { method: "POST" }); } catch { /* it may close before answering */ }
+        stopPolling();
+        S.closed = true;
+        $("closed").hidden = false;
+        document.title = "Tweetus Deletus (closed)";
+      },
+    });
+  }
+
   // ---------- misc ----------
   async function copyText(id) {
     const text = $(id).textContent;
@@ -1113,6 +1186,10 @@
     $("sp-stop").addEventListener("click", cancelJob);
     $("dp-stop").addEventListener("click", cancelJob);
     $("results-back").addEventListener("click", backToForm);
+    for (const b of document.querySelectorAll("[data-preset]")) b.addEventListener("click", () => runPreset(b.dataset.preset));
+    $("go-custom").addEventListener("click", () => { S.origin = "form"; stage("form"); window.scrollTo(0, 0); });
+    $("custom-back").addEventListener("click", backHome);
+    $("quit-btn").addEventListener("click", quitApp);
     let searchTimer;
     $("results-search").addEventListener("input", (e) => {
       clearTimeout(searchTimer);
@@ -1122,7 +1199,7 @@
     $("sel-all").addEventListener("click", () => selectAll(true));
     $("sel-none").addEventListener("click", () => selectAll(false));
     $("delete-btn").addEventListener("click", confirmDelete);
-    $("dd-again").addEventListener("click", backToForm);
+    $("dd-again").addEventListener("click", backHome);
 
     $("a-enabled").addEventListener("change", () => saveAuto(true));
     $("a-save").addEventListener("click", () => saveAuto(false));
@@ -1139,10 +1216,7 @@
     $("s-app-form").addEventListener("submit", saveApp);
     $("s-keep-form").addEventListener("submit", addKeep);
 
-    $("modal-input").addEventListener("input", (e) => {
-      $("modal-ok").disabled = e.target.value.trim().toUpperCase() !== (modalState && modalState.phrase);
-    });
-    $("modal-input").addEventListener("keydown", (e) => { if (e.key === "Enter") modalOk(); });
+    $("modal-ack").addEventListener("change", (e) => { $("modal-ok").disabled = !e.target.checked; });
     $("modal-ok").addEventListener("click", modalOk);
     $("modal-cancel").addEventListener("click", closeModal);
     $("modal").addEventListener("click", (e) => { if (e.target === $("modal")) closeModal(); });

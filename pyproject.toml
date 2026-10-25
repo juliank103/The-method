@@ -17,4 +17,4 @@ tweetus-deletus = "tweetus_deletus.cli:main"
 packages = ["tweetus_deletus"]
 
 [tool.setuptools.package-data]
-tweetus_deletus = ["ui/*"]
+tweetus_deletus = ["ui/*", "bundled.json"]

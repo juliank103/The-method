@@ -163,6 +163,7 @@ class App:
             "configured": bool(cfg.client_id) or self.demo,
             "config_error": config_error,
             "client_id": cfg.client_id,
+            "bundled_client": cfg.bundled,
             "has_secret": bool(cfg.client_secret),
             "redirect_uri": cfg.redirect_uri,
             "min_interval": cfg.min_interval,
@@ -471,6 +472,8 @@ class Handler(BaseHTTPRequestHandler):
         if not client_id:
             raise UserError("Paste your Client ID first.")
         changed = client_id != cfg.client_id
+        if changed:
+            cfg.bundled = False  # their own app now overrides the built-in one
         cfg.client_id = client_id
         if "client_secret" in body:
             cfg.client_secret = (body.get("client_secret") or "").strip() or None
@@ -494,6 +497,14 @@ class Handler(BaseHTTPRequestHandler):
                 pass
             self.app.reset_auth()
         self._json(200, {"ok": True})
+
+    def api_quit(self, q):
+        job = self.app.jobs.current
+        if job and job.state == "running":
+            job.cancel()
+        self._json(200, {"ok": True})
+        # Shut down after this response is on its way.
+        threading.Thread(target=self.server.shutdown, daemon=True).start()
 
     # -- api: archive -----------------------------------------------------
 
@@ -719,6 +730,7 @@ API_ROUTES = {
     ("GET", "/api/status"): Handler.api_status,
     ("POST", "/api/setup"): Handler.api_setup,
     ("POST", "/api/logout"): Handler.api_logout,
+    ("POST", "/api/quit"): Handler.api_quit,
     ("POST", "/api/archive"): Handler.api_archive_upload,
     ("DELETE", "/api/archive"): Handler.api_archive_delete,
     ("POST", "/api/scan"): Handler.api_scan,
@@ -773,6 +785,7 @@ def serve(config_path: str = DEFAULT_CONFIG_PATH, *, demo: bool = False,
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     try:
         httpd.serve_forever()
+        print("\nClosed from the app. Bye!")
     except KeyboardInterrupt:
         print("\nBye!")
     finally:
