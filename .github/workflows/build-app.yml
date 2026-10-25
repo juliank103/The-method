@@ -5,7 +5,8 @@ name: Build the app
 #
 # To build your X app's Client ID into the apps, add a repository variable
 # named X_CLIENT_ID (Settings → Secrets and variables → Actions → Variables),
-# then re-run this workflow.
+# then re-run this workflow. On a public repo the downloads are public too,
+# and anyone using them would be billed to your X developer account.
 
 on:
   push:

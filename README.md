@@ -55,32 +55,24 @@ people only ever see **Connect with X**.
    - Callback URI: `http://127.0.0.1:8721/callback`
    - Website URL: anything, e.g. `https://example.com`
 3. Copy the **OAuth 2.0 Client ID**.
-4. Make the app with the Client ID built in. Pick one:
-   - **On your own computer (simplest).** On a Mac, double-click
-     `packaging/Build the Mac app.command`; on Windows, double-click
-     `packaging/Build the Windows app.bat`. It needs Python 3.11+ and takes a
-     couple of minutes. Paste the Client ID when it asks. The finished app
-     appears in the `dist` folder; send her that file (AirDrop, email, USB
-     stick).
-   - **On GitHub.** In this repo go to **Settings → Secrets and variables →
-     Actions → Variables** and add `X_CLIENT_ID` with the Client ID. Then open
-     **Actions → Build the app**, pick the latest run and click
-     **Re-run all jobs**. When it finishes, the download links above have it
-     built in. On a private repo this uses your account's Actions minutes; if
-     the run says payments failed or the spending limit needs raising, sort
-     that out under **Settings → Billing & plans**, or use the first option.
+4. Make a copy of the app with your Client ID built in: on a Mac,
+   double-click `packaging/Build the Mac app.command`; on Windows,
+   double-click `packaging/Build the Windows app.bat`. It needs Python 3.11+
+   and takes a couple of minutes. Paste the Client ID when it asks. The
+   finished app appears in the `dist` folder; send her that file (AirDrop,
+   email, USB stick).
 5. Add credits in the X Developer Portal. X bills API use to your developer
    account (pay-per-use), roughly one request per deleted item.
 
-If this repo is private, the download links only work for people with access,
-so download the app yourself and send it over.
+Keep your Client ID out of the public downloads on this page: anyone using a
+copy with your Client ID built in runs up *your* X bill. (The build workflow
+can bake one in from an `X_CLIENT_ID` repository variable, so only set that
+if you're fine with that.) The public downloads have no Client ID and show
+a setup screen instead.
 
 *Mac tip:* an app sent by AirDrop or downloaded gets the “can't be opened”
 warning the first time. You can clear it for her in Terminal with
 `xattr -dr com.apple.quarantine "/Applications/Tweetus Deletus.app"`.
-
-Without a built-in Client ID the app shows a setup screen asking for one
-instead, which also works.
 
 ## Good to know
 
