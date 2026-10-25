@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tweetus Deletus
 // @namespace    app.tweetusdeletus
-// @version      1.0.6
+// @version      1.0.7
 // @description  Delete your own X (Twitter) posts in bulk, slowly and safely, from your own browser. Free.
 // @author       Tweetus Deletus
 // @match        *://x.com/*
@@ -146,6 +146,7 @@
     menuItem: '[role="menuitem"]',
     confirm: '[data-testid="confirmationSheetConfirm"]',
     social: '[data-testid="socialContext"]',
+    unrepost: '[data-testid="unretweet"]',   // the green repost button, when already reposted
   };
 
   function visible(el) {
@@ -274,11 +275,39 @@
     }
   }
 
+  function isRepost(art) {
+    const s = art.querySelector(SEL.social);
+    return !!(s && /repost|retweet/i.test(s.textContent || ""));
+  }
+
+  // Undo a repost via the green repost button (the correct way — the "..."
+  // menu on a repost is about the original author, not undoing). Clicking it
+  // opens a little "Undo repost" menu we then confirm.
+  async function undoRepost(art) {
+    const btn = art.querySelector(SEL.unrepost);
+    if (!btn || !visible(btn)) return "skip";   // not actually your repost
+    btn.click();
+    for (let i = 0; i < 20 && !(document.querySelector(SEL.menu)
+      || document.querySelector(SEL.confirm)); i++) await sleep(100);
+    let acted = clickMenuItem((s) => s.includes("undo repost") || s.includes("undo retweet"));
+    // Some flows then show a confirm sheet; click it if it appears.
+    await sleep(400);
+    for (let i = 0; i < 15 && !document.querySelector(SEL.confirm); i++) await sleep(100);
+    const c = document.querySelector(SEL.confirm);
+    if (c) { c.click(); acted = true; await sleep(600); }
+    await closeAnyMenu();
+    return acted ? "deleted" : "skip";
+  }
+
   // Delete (or undo-repost) one post. Returns "deleted" | "skip" | "error".
+  // It never throws and always returns, so one awkward post can't stall the
+  // whole run.
   async function handleOne(art) {
     await closeAnyMenu();            // clear anything left from the last one
     art.scrollIntoView({ block: "center" });
     await sleep(500);
+
+    if (isRepost(art)) return await undoRepost(art);
 
     const caret = art.querySelector(SEL.caret);
     if (!caret || !visible(caret)) return "error-nocaret";
@@ -289,12 +318,18 @@
     if (!document.querySelector(SEL.menu)) return "error-nomenu";
 
     const kind = H.classifyMenu(menuItemsText());
-    if (kind === "skip") { await closeAnyMenu(); return "skip"; }
+    // Not deletable from here (e.g. a repost whose button we missed) — leave it.
+    if (kind !== "delete") {
+      const picked = kind === "unrepost"
+        && clickMenuItem((s) => s.includes("undo repost") || s.includes("undo retweet"));
+      await sleep(400);
+      const c = document.querySelector(SEL.confirm);
+      if (c) { c.click(); await sleep(600); }
+      await closeAnyMenu();
+      return picked || c ? "deleted" : "skip";
+    }
 
-    const picked = kind === "delete"
-      ? clickMenuItem((s) => s.startsWith("delete"))
-      : clickMenuItem((s) => s.includes("undo repost") || s.includes("undo retweet"));
-    if (!picked) { await closeAnyMenu(); return "error-noitem"; }
+    if (!clickMenuItem((s) => s.startsWith("delete"))) { await closeAnyMenu(); return "error-noitem"; }
 
     // A confirm sheet usually appears; click it if so.
     await sleep(500);

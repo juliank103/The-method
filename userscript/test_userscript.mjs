@@ -71,13 +71,18 @@ function pageHtml() {
     const dt = new Date(now - age * day).toISOString();
     const author = foreign ? "them" : repost ? "friend" : "hanibanhi";
     const social = pinned ? "Pinned" : repost ? "You reposted" : "";
+    // A repost's "..." menu is the ORIGINAL author's options (no Undo repost);
+    // undoing is done via the green repost button, as on real X.
     const menu = foreign ? ["Unfollow @them", "Mute", "Block", "Report post"]
-      : repost ? ["Undo repost", "Copy link"] : ["Delete", "Pin to your profile"];
+      : repost ? ["Unfollow @friend", "Mute", "Block"] : ["Delete", "Pin to your profile"];
+    const repostBtn = repost
+      ? `<button data-testid="unretweet" onclick='openRepostMenu("${id}")'>reposted</button>` : "";
     return `<article data-testid="tweet" data-id="${id}">
       ${social ? `<div data-testid="socialContext">${social}</div>` : ""}
       <div data-testid="User-Name"><a href="/${author}">@${author}</a></div>
       <div data-testid="tweetText">${text}</div>
       <a href="/testuser/status/${id}"><time datetime="${dt}">t</time></a>
+      ${repostBtn}
       <button data-testid="caret" onclick='openMenu("${id}", ${JSON.stringify(menu)})'>...</button>
     </article>`;
   }).join("");
@@ -89,14 +94,17 @@ function pageHtml() {
   <div id=feed>${arts}</div><div id=layers></div>
   <script>
     window.__menuOpens=[];
-    window.openMenu=function(id,items){window.__menuOpens.push(id);close_();
+    function buildMenu(id,items){
       var mask=document.createElement('div');mask.setAttribute('data-testid','mask');
       mask.id='live-mask';mask.onclick=close_;document.getElementById('layers').appendChild(mask);
       var m=document.createElement('div');m.setAttribute('data-testid','Dropdown');
       m.setAttribute('role','menu');m.id='live-menu';
       items.forEach(function(t){var it=document.createElement('div');it.setAttribute('role','menuitem');
         it.textContent=t;it.onclick=function(){pick(id,t)};m.appendChild(it)});
-      document.getElementById('layers').appendChild(m)};
+      document.getElementById('layers').appendChild(m);}
+    window.openMenu=function(id,items){window.__menuOpens.push(id);close_();buildMenu(id,items);};
+    // The green repost button opens a small "Undo repost" menu.
+    window.openRepostMenu=function(id){close_();buildMenu(id,["Undo repost"]);};
     function close_(){['live-menu','live-mask'].forEach(function(i){var e=document.getElementById(i);if(e)e.remove()})}
     document.addEventListener('keydown',function(e){if(e.key==='Escape')close_()});
     function pick(id,t){close_();if(t==='Delete'||t==='Undo repost'){
