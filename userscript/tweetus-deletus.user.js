@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tweetus Deletus
 // @namespace    app.tweetusdeletus
-// @version      1.0.4
+// @version      1.0.5
 // @description  Delete your own X (Twitter) posts in bulk, slowly and safely, from your own browser. Free.
 // @author       Tweetus Deletus
 // @match        *://x.com/*
@@ -116,6 +116,7 @@
     deleted: 0,
     skipped: 0,
     errors: 0,
+    tooNew: 0,
     sinceRest: 0,
     processed: new Set(),
     log: [],
@@ -185,8 +186,10 @@
     for (const art of document.querySelectorAll(SEL.tweet)) {
       const id = tweetId(art);
       if (!id || S.processed.has(id)) continue;
-      if (S.settings.keepPinned && isPinned(art)) { S.processed.add(id); continue; }
-      if (!H.isOlderThan(tweetDate(art), cutoffMs)) { S.processed.add(id); continue; }
+      if (S.settings.keepPinned && isPinned(art)) { S.processed.add(id); S.skipped++; continue; }
+      if (!H.isOlderThan(tweetDate(art), cutoffMs)) {
+        S.processed.add(id); S.skipped++; S.tooNew++; continue;
+      }
       if (keepWords.length && H.textHasAny(tweetText(art), keepWords)) {
         S.processed.add(id); S.skipped++; continue;
       }
@@ -288,6 +291,7 @@
     // the waits; in normal use it is undefined and the real paces are used.
     const pace = window.__tdPace || PACES[S.settings.pace] || PACES.slow;
     let emptyScrolls = 0;
+    S.tooNew = 0;
 
     while (!S.stopRequested) {
       const cand = nextCandidate();
@@ -297,10 +301,14 @@
         const got = await loadMore();
         emptyScrolls = got ? 0 : emptyScrolls + 1;
         if (emptyScrolls >= 4) {
-          setStatus(S.deleted
-            ? "Reached the end. All done. 🎉"
-            : "I didn't find any of your posts on this page. Open your profile and "
-              + "make sure your tweets are showing (the 'All' or 'Posts' tab), then press Start.");
+          let msg;
+          if (S.deleted) msg = "Reached the end. All done. 🎉";
+          else if (S.tooNew) msg = "Found your posts, but they're all newer than your "
+            + "“Only older than” setting (" + S.settings.olderThanDays
+            + " days), so none were deleted. Clear that box (or set it lower) and press Start.";
+          else msg = "I didn't find any of your posts here. Make sure your tweets or "
+            + "replies are showing on this tab, then press Start.";
+          setStatus(msg);
           break;
         }
         continue;
@@ -351,9 +359,10 @@
       }
     }
 
+    const stoppedByUser = S.stopRequested;   // true only if Stop was pressed
     S.running = false;
     S.stopRequested = false;
-    if (!/All done|changed/.test(statusEl.textContent)) setStatus("Stopped.");
+    if (stoppedByUser) setStatus("Stopped. Press Start to carry on.");
     render();
   }
 

@@ -141,6 +141,28 @@ try {
   ok("no errors", err === "0");
   ok("no page exceptions", problems.length === 0);
 
+  // If a date filter excludes everything, say why (this is the likely cause
+  // of "it won't delete my replies" — a leftover 'older than' value).
+  const tooNew = await browser.newPage();
+  tooNew.on("dialog", (d) => d.accept());
+  await tooNew.goto(`http://127.0.0.1:${port}/hanibanhi`);
+  await tooNew.evaluate(() => {
+    localStorage.setItem("tweetus-deletus", JSON.stringify(
+      { pace: "normal", keepPinned: true, olderThanDays: "3000", keepWords: "" }));
+    window.__tdPace = { base: 0.05, jitter: 0, restEvery: 9999, restSec: 0 };
+  });
+  await tooNew.addScriptTag({ content: SCRIPT });
+  await tooNew.waitForSelector("#tdp-start");
+  await tooNew.click("#tdp-start");
+  await tooNew.click("#tdp-start");
+  await tooNew.waitForFunction(
+    () => /newer than|all done|didn't find/i.test(document.querySelector("#tdp-status").textContent),
+    null, { timeout: 60000 });
+  ok("explains when the date filter kept everything",
+    /newer than your/i.test(await tooNew.$eval("#tdp-status", (e) => e.textContent)));
+  ok("nothing deleted when filter excludes all",
+    (await tooNew.evaluate(() => (window.__deleted || []).length)) === 0);
+
   // Profile gate: on a non-profile page, Start must refuse; on a profile it
   // must arm. (The user's bug was Start doing nothing on their profile.)
   const gate = await browser.newPage();
